@@ -3,7 +3,7 @@
 > **Smart Forensic Toolkit for CTF Challenges**  
 > Alat otomatis untuk menganalisis file dalam kompetisi keamanan siber — mendukung steganografi visual, header repair, ekstraksi tersembunyi, dan deteksi flag cerdas.
 > 
-> Versi: **v2.0 (AperiSolve Style)** — dengan dukungan penuh steganography tools seperti zsteg, steghide, outguess, foremost, dan lainnya.
+> Versi: **v2.2 (AperiSolve Style + Network Forensics)** — dengan dukungan penuh steganography tools, network forensics (PCAP analysis), dan auto-decode.
 
 
 ## 📦 Instalasi
@@ -23,7 +23,10 @@ sudo apt update && sudo apt install -y \
     steghide \
     foremost \
     pngcheck \
-    graphicsmagick
+    graphicsmagick \
+    tshark \
+    tcpdump \
+    wireshark-common
 ```
 
 ### **2. Instalasi zsteg (Ruby Gem)**
@@ -77,6 +80,7 @@ sudo cp ForesTools.py /usr/local/bin/fores
 > 💡 **Catatan**:  
 > - `tesseract-ocr` digunakan untuk OCR (optical character recognition) jika diperlukan di fitur lanjutan.  
 > - `Pillow` dan `numpy` wajib untuk analisis gambar (bit plane & channel splitting).
+> - `tshark` dan `tcpdump` diperlukan untuk **network forensics** (analisis file PCAP).
 > - Tools steganografi (`zsteg`, `steghide`, `outguess`, dll) bersifat **opsional** — jika tidak terinstall, tools akan otomatis dilewati.
 
 ---
@@ -296,6 +300,73 @@ fores secret.txt --decode
 
 ---
 
+## 🌐 Network Forensics - PCAP Analysis (v2.2)
+
+### **Analisis File PCAP**
+Tools sekarang mendukung analisis file capture network (PCAP) untuk menemukan flag dan data tersembunyi:
+
+```bash
+# Analisis full PCAP
+fores capture.pcap --pcap
+
+# Contoh output:
+# - HTTP objects (file yang ditransfer)
+# - DNS queries (bisa ada flag di subdomain)
+# - Credentials (FTP, HTTP Basic Auth, Telnet)
+# - TCP streams (reconstructed)
+# - Flags di packet data
+```
+
+### **Fitur PCAP Analysis**
+
+| Fitur | Deskripsi |
+|-------|-----------|
+| **HTTP Objects** | Ekstrak semua file dari HTTP traffic (images, zip, dll) |
+| **DNS Queries** | Ambil semua query DNS, cari flag di subdomain |
+| **Credentials** | Cari username/password di FTP/HTTP/Telnet |
+| **Flag Search** | Scan semua packet data untuk flag |
+| **Stream Reconstruction** | Reconstruct TCP streams untuk lihat data lengkap |
+| **Port Analysis** | Deteksi port tidak umum |
+
+### **Contoh Kasus CTF PCAP**
+
+**Kasus 1: HTTP File Transfer**
+```bash
+fores challenge.pcap --pcap
+# Output: challenge_http_objects/image.png
+# Flag ditemukan di dalam image
+```
+
+**Kasus 2: DNS Exfiltration**
+```bash
+fores dns_traffic.pcap --pcap
+# Menemukan: flag.picoctf.com di DNS queries
+# Atau: base64 encoded data di subdomain
+```
+
+**Kasus 3: Credentials in Cleartext**
+```bash
+fores ftp_traffic.pcap --pcap
+# Output: credentials.txt dengan FTP user/pass
+# Flag ditemukan: picoCTF{ftp_credz}
+```
+
+### **Struktur Output PCAP**
+```
+capture.pcap/
+├── capture_http_objects/     # File dari HTTP
+│   ├── image_001.png
+│   └── secret.zip
+├── capture_streams/          # TCP streams (10 pertama)
+│   ├── stream_0.txt
+│   └── stream_1.txt
+├── capture_dns_queries.txt   # Semua DNS queries
+├── capture_credentials.txt   # Username/password
+└── capture_pcap_info.txt     # Metadata capture
+```
+
+---
+
 ## 📁 Output Folder
 
 Semua hasil ekstraksi disimpan di **folder yang sama dengan file input**:
@@ -313,6 +384,11 @@ Semua hasil ekstraksi disimpan di **folder yang sama dengan file input**:
 | `*_decoded_b64_*` | File hasil decode base64 (auto-detect) |
 | `*_decoded_hex_*` | File hasil decode hex (auto-detect) |
 | `*_decoded_bin_*` | File hasil decode binary (auto-detect) |
+| `*_http_objects/` | File dari HTTP traffic (PCAP) |
+| `*_streams/` | TCP streams hasil reconstruction (PCAP) |
+| `*_pcap_info.txt` | Metadata file PCAP |
+| `*_dns_queries.txt` | DNS queries dari PCAP |
+| `*_credentials.txt` | Credentials dari PCAP |
 | `_extracted_*/` | File tersembunyi dari binwalk |
 | `fixed_*`, `repaired_*` | File dengan header diperbaiki |
 
@@ -347,6 +423,10 @@ fores logs.txt --decode           # Auto-decode base64/hex/binary
 fores secret.txt --extract        # Ekstrak semua file tersembunyi
 fores mystery.bin --decode        # Decode otomatis dengan deteksi tipe file
 
+# ===== NETWORK FORENSICS (BARU v2.2!) =====
+fores capture.pcap --pcap         # Full PCAP analysis
+fores network.pcap --pcap         # Ekstrak HTTP/DNS/flags dari PCAP
+
 # ===== GAMBAR LANJUTAN =====
 fores file.png --remap            # Color remapping (8 variants)
 fores file.png --alpha            # Alpha channel analysis
@@ -364,6 +444,7 @@ fores file.png --deep --alpha     # Kombinasi
 - 💡 Gunakan `--auto` untuk analisis cepat tanpa perlu memilih tools satu per satu
 - 🎯 **Soal encoding**: Jika file berisi base64/hex (contoh: `logs.txt`), gunakan `--decode` untuk otomatis decode jadi image/file
 - 📦 **File tersembunyi**: Hasil decode otomatis disimpan dengan format yang benar (jpg, png, zip, dll)
+- 🌐 **Network Forensics**: File `.pcap` gunakan `--pcap` untuk analisis lengkap (HTTP, DNS, credentials, flags)
 
 ### **Contoh Kasus CTF Umum**
 
@@ -386,6 +467,21 @@ fores image.jpg --bruteforce
 ```bash
 # Soal: hidden data di bit-plane
 fores image.png --lsb --deep
+```
+
+**Kasus 4: Network Forensics (PCAP)**
+```bash
+# Soal: Flag tersembunyi di HTTP traffic
+fores capture.pcap --pcap
+# Output: capture_http_objects/flag.png
+
+# Soal: DNS exfiltration
+fores dns.pcap --pcap
+# Cek: capture_dns_queries.txt
+
+# Soal: Credentials dalam cleartext
+fores ftp.pcap --pcap
+# Cek: capture_credentials.txt
 ```
 
 ---

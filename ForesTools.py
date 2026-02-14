@@ -45,7 +45,10 @@ def check_tool_availability():
         'jphs': 'jphs',
         'exiftool': 'exiftool',
         'binwalk': 'binwalk',
-        'identify': 'gm'
+        'identify': 'gm',
+        'tshark': 'tshark',
+        'tcpdump': 'tcpdump',
+        'capinfos': 'capinfos'
     }
     
     global AVAILABLE_TOOLS
@@ -97,6 +100,7 @@ FILE_SIGNATURES = {
     "exe": b"\x4D\x5A",
     "sqlite": b"\x53\x51\x4C\x69\x74\x65\x20\x66\x6F\x72\x6D\x61\x74\x20\x33",
     "pcap": b"\xD4\xC3\xB2\xA1",
+    "pcapng": b"\x0A\x0D\x0D\x0A",
     "bmp": b"\x42\x4D",
     "wav": b"\x52\x49\x46\x46",
     "mp3": b"\x49\x44\x33"
@@ -757,6 +761,308 @@ def bruteforce_steghide(filepath: Path, wordlist: list = None, delay: float = 5.
     if not found:
         print(f"{Fore.YELLOW}[BRUTEFORCE] No password found.{Style.RESET_ALL}")
 
+def analyze_pcap_basic(filepath: Path):
+    if not AVAILABLE_TOOLS.get('capinfos', False):
+        print(f"{Fore.YELLOW}[PCAP] Capinfos not installed. Skipping.{Style.RESET_ALL}")
+        return
+    
+    print(f"{Fore.GREEN}[PCAP] Getting capture info...{Style.RESET_ALL}")
+    try:
+        result = subprocess.run(
+            ["capinfos", str(filepath)],
+            capture_output=True, text=True, timeout=30
+        )
+        output = result.stdout
+        print(f"{Fore.CYAN}{output}{Style.RESET_ALL}")
+        
+        # Save to file
+        info_file = filepath.parent / f"{filepath.stem}_pcap_info.txt"
+        with open(info_file, 'w') as f:
+            f.write(output)
+        add_to_summary("PCAP-INFO", f"Saved to '{info_file.name}'")
+        
+        # Search for flags in capinfos output
+        collect_base64_from_text(output)
+    except Exception as e:
+        print(f"{Fore.RED}[PCAP] Capinfos failed: {e}{Style.RESET_ALL}")
+
+def extract_http_objects(filepath: Path):
+    if not AVAILABLE_TOOLS.get('tshark', False):
+        print(f"{Fore.YELLOW}[PCAP] Tshark not installed. Skipping HTTP extraction.{Style.RESET_ALL}")
+        return
+    
+    print(f"{Fore.GREEN}[PCAP] Extracting HTTP objects...{Style.RESET_ALL}")
+    output_dir = filepath.parent / f"{filepath.stem}_http_objects"
+    output_dir.mkdir(exist_ok=True)
+    
+    try:
+        result = subprocess.run(
+            ["tshark", "-r", str(filepath), "--export-objects", f"http,{output_dir}", "-q"],
+            capture_output=True, text=True, timeout=120
+        )
+        
+        files_extracted = list(output_dir.glob("*"))
+        if files_extracted:
+            print(f"{Fore.GREEN}[+] Extracted {len(files_extracted)} HTTP object(s){Style.RESET_ALL}")
+            for f in files_extracted[:10]:
+                print(f"  - {f.name}")
+                # Analyze extracted file for flags
+                analyze_extracted_file(f)
+            add_to_summary("PCAP-HTTP", f"{len(files_extracted)} objects saved to '{output_dir.name}'")
+        else:
+            print(f"{Fore.YELLOW}[!] No HTTP objects found{Style.RESET_ALL}")
+    except Exception as e:
+        print(f"{Fore.RED}[PCAP] HTTP extraction failed: {e}{Style.RESET_ALL}")
+
+def extract_dns_queries(filepath: Path):
+    if not AVAILABLE_TOOLS.get('tshark', False):
+        print(f"{Fore.YELLOW}[PCAP] Tshark not installed. Skipping DNS analysis.{Style.RESET_ALL}")
+        return
+    
+    print(f"{Fore.GREEN}[PCAP] Extracting DNS queries...{Style.RESET_ALL}")
+    try:
+        result = subprocess.run(
+            ["tshark", "-r", str(filepath), "-T", "fields", "-e", "dns.qry.name", "-Y", "dns", "-q"],
+            capture_output=True, text=True, timeout=60
+        )
+        
+        output = result.stdout.strip()
+        if output:
+            queries = [q for q in output.split('\n') if q]
+            print(f"{Fore.CYAN}[+] Found {len(queries)} DNS queries{Style.RESET_ALL}")
+            
+            # Save to file
+            dns_file = filepath.parent / f"{filepath.stem}_dns_queries.txt"
+            with open(dns_file, 'w') as f:
+                f.write(output)
+            
+            # Check for flags in DNS queries
+            for query in queries[:20]:  # Check first 20
+                for pattern in COMMON_FLAG_PATTERNS:
+                    matches = re.findall(pattern, query, re.IGNORECASE)
+                    for match in matches:
+                        print(f"{Fore.GREEN}[!] FLAG in DNS query: {match}{Style.RESET_ALL}")
+                        add_to_summary("PCAP-DNS-FLAG", match)
+            
+            # Check for base64 in DNS queries
+            collect_base64_from_text(output)
+            add_to_summary("PCAP-DNS", f"{len(queries)} queries saved to '{dns_file.name}'")
+        else:
+            print(f"{Fore.YELLOW}[!] No DNS queries found{Style.RESET_ALL}")
+    except Exception as e:
+        print(f"{Fore.RED}[PCAP] DNS extraction failed: {e}{Style.RESET_ALL}")
+
+def extract_credentials(filepath: Path):
+    if not AVAILABLE_TOOLS.get('tshark', False):
+        print(f"{Fore.YELLOW}[PCAP] Tshark not installed. Skipping credentials extraction.{Style.RESET_ALL}")
+        return
+    
+    print(f"{Fore.GREEN}[PCAP] Searching for credentials...{Style.RESET_ALL}")
+    creds_found = []
+    
+    try:
+        # FTP credentials
+        result = subprocess.run(
+            ["tshark", "-r", str(filepath), "-T", "fields", "-e", "ftp.user", "-e", "ftp.pass", 
+             "-Y", "ftp", "-q"],
+            capture_output=True, text=True, timeout=60
+        )
+        if result.stdout.strip():
+            creds_found.append(("FTP", result.stdout.strip()))
+        
+        # HTTP Basic Auth
+        result = subprocess.run(
+            ["tshark", "-r", str(filepath), "-T", "fields", "-e", "http.authbasic", 
+             "-Y", "http.authbasic", "-q"],
+            capture_output=True, text=True, timeout=60
+        )
+        if result.stdout.strip():
+            creds_found.append(("HTTP Basic Auth", result.stdout.strip()))
+        
+        # Telnet
+        result = subprocess.run(
+            ["tshark", "-r", str(filepath), "-T", "fields", "-e", "telnet.data", 
+             "-Y", "telnet", "-q"],
+            capture_output=True, text=True, timeout=60
+        )
+        if result.stdout.strip():
+            creds_found.append(("Telnet", result.stdout.strip()))
+        
+        if creds_found:
+            print(f"{Fore.GREEN}[+] Found credentials:{Style.RESET_ALL}")
+            creds_file = filepath.parent / f"{filepath.stem}_credentials.txt"
+            with open(creds_file, 'w') as f:
+                for proto, data in creds_found:
+                    print(f"  {proto}: {data[:100]}")
+                    f.write(f"{proto}:\n{data}\n\n")
+            add_to_summary("PCAP-CREDENTIALS", f"Saved to '{creds_file.name}'")
+            
+            # Check for flags in credentials
+            for proto, data in creds_found:
+                for pattern in COMMON_FLAG_PATTERNS:
+                    matches = re.findall(pattern, data, re.IGNORECASE)
+                    for match in matches:
+                        add_to_summary("PCAP-CREDS-FLAG", match)
+        else:
+            print(f"{Fore.YELLOW}[!] No credentials found{Style.RESET_ALL}")
+    except Exception as e:
+        print(f"{Fore.RED}[PCAP] Credentials extraction failed: {e}{Style.RESET_ALL}")
+
+def search_pcap_flags(filepath: Path):
+    if not AVAILABLE_TOOLS.get('tshark', False):
+        print(f"{Fore.YELLOW}[PCAP] Tshark not installed. Skipping flag search.{Style.RESET_ALL}")
+        return
+    
+    print(f"{Fore.GREEN}[PCAP] Searching for flags in packets...{Style.RESET_ALL}")
+    
+    try:
+        # Extract data from various protocols
+        result = subprocess.run(
+            ["tshark", "-r", str(filepath), "-T", "fields", "-e", "data", "-q"],
+            capture_output=True, text=True, timeout=120
+        )
+        
+        data = result.stdout
+        flags_found = []
+        
+        for pattern in COMMON_FLAG_PATTERNS:
+            matches = re.findall(pattern, data, re.IGNORECASE)
+            flags_found.extend(matches)
+        
+        if flags_found:
+            print(f"{Fore.GREEN}[!] FLAGS FOUND in PCAP:{Style.RESET_ALL}")
+            for flag in set(flags_found):
+                print(f"  - {flag}")
+                add_to_summary("PCAP-FLAG", flag)
+        else:
+            print(f"{Fore.YELLOW}[!] No flags found in packet data{Style.RESET_ALL}")
+        
+        # Also check HTTP data
+        result = subprocess.run(
+            ["tshark", "-r", str(filepath), "-T", "fields", "-e", "http.file_data", "-q"],
+            capture_output=True, text=True, timeout=60
+        )
+        
+        for pattern in COMMON_FLAG_PATTERNS:
+            matches = re.findall(pattern, result.stdout, re.IGNORECASE)
+            for match in matches:
+                print(f"{Fore.GREEN}[!] FLAG in HTTP data: {match}{Style.RESET_ALL}")
+                add_to_summary("PCAP-HTTP-FLAG", match)
+        
+        # Check TCP payload
+        result = subprocess.run(
+            ["tshark", "-r", str(filepath), "-T", "fields", "-e", "tcp.payload", "-q"],
+            capture_output=True, text=True, timeout=60
+        )
+        
+        for pattern in COMMON_FLAG_PATTERNS:
+            matches = re.findall(pattern, result.stdout, re.IGNORECASE)
+            for match in matches:
+                print(f"{Fore.GREEN}[!] FLAG in TCP payload: {match}{Style.RESET_ALL}")
+                add_to_summary("PCAP-TCP-FLAG", match)
+                
+    except Exception as e:
+        print(f"{Fore.RED}[PCAP] Flag search failed: {e}{Style.RESET_ALL}")
+
+def reconstruct_streams(filepath: Path):
+    if not AVAILABLE_TOOLS.get('tshark', False):
+        print(f"{Fore.YELLOW}[PCAP] Tshark not installed. Skipping stream reconstruction.{Style.RESET_ALL}")
+        return
+    
+    print(f"{Fore.GREEN}[PCAP] Reconstructing TCP streams...{Style.RESET_ALL}")
+    output_dir = filepath.parent / f"{filepath.stem}_streams"
+    output_dir.mkdir(exist_ok=True)
+    
+    try:
+        # Get number of streams
+        result = subprocess.run(
+            ["tshark", "-r", str(filepath), "-T", "fields", "-e", "tcp.stream", "-q"],
+            capture_output=True, text=True, timeout=60
+        )
+        
+        streams = set(result.stdout.strip().split('\n'))
+        streams = [s for s in streams if s]
+        
+        if streams:
+            print(f"{Fore.CYAN}[+] Found {len(streams)} TCP stream(s){Style.RESET_ALL}")
+            
+            for stream_num in streams[:10]:  # Process first 10 streams
+                try:
+                    result = subprocess.run(
+                        ["tshark", "-r", str(filepath), "-q", "-z", f"follow,tcp,ascii,{stream_num}"],
+                        capture_output=True, text=True, timeout=30
+                    )
+                    
+                    stream_file = output_dir / f"stream_{stream_num}.txt"
+                    with open(stream_file, 'w') as f:
+                        f.write(result.stdout)
+                    
+                    # Check for flags in stream
+                    for pattern in COMMON_FLAG_PATTERNS:
+                        matches = re.findall(pattern, result.stdout, re.IGNORECASE)
+                        for match in matches:
+                            print(f"{Fore.GREEN}[!] FLAG in stream {stream_num}: {match}{Style.RESET_ALL}")
+                            add_to_summary("PCAP-STREAM-FLAG", f"Stream {stream_num}: {match}")
+                    
+                    # Check base64
+                    collect_base64_from_text(result.stdout)
+                except:
+                    continue
+            
+            add_to_summary("PCAP-STREAMS", f"{min(len(streams), 10)} streams saved to '{output_dir.name}'")
+        else:
+            print(f"{Fore.YELLOW}[!] No TCP streams found{Style.RESET_ALL}")
+    except Exception as e:
+        print(f"{Fore.RED}[PCAP] Stream reconstruction failed: {e}{Style.RESET_ALL}")
+
+def check_unusual_ports(filepath: Path):
+    if not AVAILABLE_TOOLS.get('tshark', False):
+        return
+    
+    print(f"{Fore.GREEN}[PCAP] Checking for unusual ports...{Style.RESET_ALL}")
+    
+    try:
+        # Get all destination ports
+        result = subprocess.run(
+            ["tshark", "-r", str(filepath), "-T", "fields", "-e", "tcp.dstport", "-e", "udp.dstport", "-q"],
+            capture_output=True, text=True, timeout=60
+        )
+        
+        ports = result.stdout.strip().split('\n')
+        port_counts = {}
+        
+        for line in ports:
+            for port in line.split('\t'):
+                if port:
+                    port_counts[port] = port_counts.get(port, 0) + 1
+        
+        # Common ports
+        common_ports = {'80', '443', '22', '21', '53', '25', '110', '143', '993', '995', '8080', '8443'}
+        unusual = {p: c for p, c in port_counts.items() if p not in common_ports and c > 0}
+        
+        if unusual:
+            print(f"{Fore.CYAN}[+] Unusual ports detected:{Style.RESET_ALL}")
+            for port, count in sorted(unusual.items(), key=lambda x: x[1], reverse=True)[:10]:
+                print(f"  Port {port}: {count} packets")
+                add_to_summary("PCAP-PORT", f"Port {port}: {count} packets")
+    except Exception as e:
+        print(f"{Fore.YELLOW}[PCAP] Port analysis failed: {e}{Style.RESET_ALL}")
+
+def analyze_pcap_full(filepath: Path):
+    print(f"{Fore.BLUE}{'='*60}")
+    print(f"PCAP ANALYSIS: {filepath.name}")
+    print(f"{'='*60}{Style.RESET_ALL}")
+    
+    analyze_pcap_basic(filepath)
+    extract_http_objects(filepath)
+    extract_dns_queries(filepath)
+    extract_credentials(filepath)
+    search_pcap_flags(filepath)
+    reconstruct_streams(filepath)
+    check_unusual_ports(filepath)
+    
+    print(f"{Fore.GREEN}[PCAP] Analysis complete!{Style.RESET_ALL}")
+
 def process_file(filepath: Path, args):
     print(f"\n{Fore.BLUE}{'='*60}")
     print(f"PROCESSING: {filepath.name}")
@@ -786,6 +1092,16 @@ def process_file(filepath: Path, args):
     is_executable = "executable" in file_desc or "elf" in file_desc
     is_png = "png" in file_desc
     is_jpg = "jpeg" in file_desc or "jpg" in file_desc
+    is_pcap = "pcap" in file_desc or "capture" in file_desc or repaired.suffix.lower() in ['.pcap', '.pcapng', '.cap']
+
+    if args.pcap and is_pcap:
+        analyze_pcap_full(repaired)
+        print_final_report(filepath.name)
+        return {
+            'flags': [item for item in flag_summary if "-FLAG" in item or "FLAG-" in item],
+            'extractions': [item for item in flag_summary if "-EXTRACT" in item],
+            'base64': base64_collector.copy()
+        }
 
     if args.all or args.auto:
         print(f"\n{Fore.CYAN}[AUTO-MODE] Running all available analyses...{Style.RESET_ALL}")
@@ -982,6 +1298,7 @@ def main():
     parser.add_argument("--deep", action="store_true", help="Deep analysis (all bit planes 0-7)")
     parser.add_argument("--decode", action="store_true", help="Auto-detect and decode encoded data (base64, hex, binary)")
     parser.add_argument("--extract", action="store_true", help="Extract embedded files from encoded text")
+    parser.add_argument("--pcap", action="store_true", help="Full PCAP network analysis")
     args = parser.parse_args()
 
     # Resolve input files
