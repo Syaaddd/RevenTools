@@ -47,7 +47,7 @@ pip install colorama Pillow numpy
 ### 6. Setup Executable ⚡
 ```bash
 chmod +x ForesTools.py
-sudo cp ForesTools.py /usr/local/bin/fores
+sudo cp ForesTools.py /usr/local/bin/sfores
 ```
 
 ---
