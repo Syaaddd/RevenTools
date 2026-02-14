@@ -1,490 +1,167 @@
-# 🕵️‍♂️ SForensicsTools
+# SForensicsTools
 
 > **Smart Forensic Toolkit for CTF Challenges**  
-> Alat otomatis untuk menganalisis file dalam kompetisi keamanan siber — mendukung steganografi visual, header repair, ekstraksi tersembunyi, dan deteksi flag cerdas.
-> 
-> Versi: **v2.2 (AperiSolve Style + Network Forensics)** — dengan dukungan penuh steganography tools, network forensics (PCAP analysis), dan auto-decode.
+> Alat otomatis untuk analisis file CTF — steganografi, header repair, ekstraksi tersembunyi, dan deteksi flag.
 
+**Versi: v2.2** — Mendukung steganography tools, network forensics (PCAP), dan auto-decode.
 
-## 📦 Instalasi
+---
 
-Ikuti langkah-langkah berikut untuk menginstal dan menyiapkan tools:
+## Instalasi
 
-### **1. Instalasi Dasar (tersedia di repo)**
+### 1. Dependencies Dasar
 ```bash
 sudo apt update && sudo apt install -y \
-    binwalk \
-    libimage-exiftool-perl \
-    tesseract-ocr \
-    unrar \
-    p7zip-full \
-    xz-utils \
-    python3-pip \
-    steghide \
-    foremost \
-    pngcheck \
-    graphicsmagick \
-    tshark \
-    tcpdump \
-    wireshark-common
+    binwalk libimage-exiftool-perl tesseract-ocr unrar p7zip-full xz-utils \
+    python3-pip steghide foremost pngcheck graphicsmagick tshark tcpdump wireshark-common
 ```
 
-### **2. Instalasi zsteg (Ruby Gem)**
+### 2. Install zsteg
 ```bash
-# Install Ruby jika belum ada
 sudo apt install -y ruby ruby-dev
-
-# Install zsteg via gem
 sudo gem install zsteg
 ```
 
-### **3. Install outguess (Compile from source)**
+### 3. Install outguess
 ```bash
-# Install dependensi build
 sudo apt install -y build-essential libjpeg-dev
-
-# Download & compile
 wget https://github.com/residentgreg/outguess/archive/refs/heads/master.zip -O outguess.zip
-unzip outguess.zip
-cd outguess-master
+unzip outguess.zip && cd outguess-master
 ./configure && make && sudo make install
-cd ..
-rm -rf outguess-master outguess.zip
+cd .. && rm -rf outguess-master outguess.zip
 ```
 
-### **4. Install jpseek / jphs (JPEG steganography)**
+### 4. Install jpseek/jphs
 ```bash
-# Install dari source
-sudo apt install -y build-essential libjpeg-dev
-
-# jphs (JPEG Hidden Data Selector)
 wget https://downloads.sourceforge.net/project/jphs/jphs/jphs-0.9b.tar.gz
-tar -xzf jphs-0.9b.tar.gz
-cd jphs-0.9b
+tar -xzf jphs-0.9b.tar.gz && cd jphs-0.9b
 make && sudo make install
-cd ..
-rm -rf jphs-0.9b jphs-0.9b.tar.gz
+cd .. && rm -rf jphs-0.9b jphs-0.9b.tar.gz
 ```
 
-### **5. Instal dependensi Python**
+### 5. Python Dependencies
 ```bash
 pip install colorama Pillow numpy
 ```
 
-### **6. Jadikan executable & pasang ke PATH**
+### 6. Setup Executable
 ```bash
 chmod +x ForesTools.py
 sudo cp ForesTools.py /usr/local/bin/fores
 ```
 
-> 💡 **Catatan**:  
-> - `tesseract-ocr` digunakan untuk OCR (optical character recognition) jika diperlukan di fitur lanjutan.  
-> - `Pillow` dan `numpy` wajib untuk analisis gambar (bit plane & channel splitting).
-> - `tshark` dan `tcpdump` diperlukan untuk **network forensics** (analisis file PCAP).
-> - Tools steganografi (`zsteg`, `steghide`, `outguess`, dll) bersifat **opsional** — jika tidak terinstall, tools akan otomatis dilewati.
-
 ---
 
-## 🚀 Cara Menjalankan (CLI)
+## Penggunaan
 
-Tools ini mendukung berbagai pola input untuk memudahkan analisis massal dalam tantangan CTF.
-
-### 1. **Satu File**
+### Input
 ```bash
+# Satu file
 fores challenge.png
-```
 
-### 2. **Beberapa File atau Wildcard**
-```bash
-# Semua file PNG di direktori saat ini
+# Beberapa file / wildcard
 fores *.png
-
-# Beberapa file sekaligus
 fores secret.jpg data.zip firmware.bin
-```
 
-### 3. **Seluruh Folder (Rekursif)**
-```bash
-# Analisis semua file di folder saat ini
-fores .
+# Folder rekursif
+fores /path/to/challenges/
 
-# Analisis folder tertentu
-fores /path/to/ctf/challenges/
-```
-
-### 4. **Dengan Petunjuk Format Flag (Opsional)**
-Jika Anda tahu format flagnya (misalnya `picoCTF{...}`), berikan sebagai hint:
-```bash
+# Dengan format flag hint
 fores -f "picoCTF{" suspicious.png
-fores --format "CTF{" *.jpg
 ```
 
-### 5. **Auto-Decode Encoded Data (Baru!)**
-Otomatis mendeteksi dan mendecode data yang di-encode (base64, hex, binary):
+### Mode Analisis
 ```bash
-# Decode file yang berisi base64 encoded image
-fores logs.txt --decode
+fores image.png --auto      # Auto-detect & jalankan tools sesuai tipe file
+fores image.png --all       # Jalankan SEMUA analisis
+```
 
-# Ekstrak semua file tersembunyi
-fores encoded_data.txt --extract
+### Steganografi
+```bash
+fores image.png --lsb        # LSB analysis (zsteg)
+fores image.jpg --steghide   # Ekstrak steghide
+fores image.jpg --outguess   # Outguess extraction
+fores image.png --pngcheck   # Validasi PNG
+fores image.jpg --jpsteg     # JPEG steganalysis
+fores image.png --foremost   # File carving
+```
 
-# Kombinasi dengan mode auto
-fores mystery_file --auto
+### Brute Force
+```bash
+fores image.png --bruteforce                    # Default (5s delay, 80 passwords)
+fores image.png --bruteforce --delay 10         # Delay custom
+fores image.png --bruteforce --wordlist dict.txt
+```
+
+### Analisis Gambar Lanjutan
+```bash
+fores image.png --remap       # Color remapping (8 variants)
+fores image.png --alpha       # Alpha channel analysis
+fores image.png --deep        # Full bit plane (0-7)
+```
+
+### Auto-Decode
+```bash
+fores logs.txt --decode       # Auto-decode base64/hex/binary
+fores secret.txt --extract    # Ekstrak semua file tersembunyi
+```
+
+### Network Forensics (PCAP)
+```bash
+fores capture.pcap --pcap     # Analisis full PCAP
 ```
 
 ---
 
-## 🆕 Mode Analisis (v2.0)
-
-### **Mode Otomatis (--auto)**
-Jalankan semua tools yang tersedia secara otomatis berdasarkan tipe file:
-```bash
-fores image.png --auto
-```
-Akan otomatis mendeteksi file type dan menjalankan:
-- Image → bit plane, RGB channels, zsteg, steghide, pngcheck, dll
-- Archive → binwalk, foremost
-
-### **Mode Lengkap (--all)**
-Paksa jalankan **semua** analisis termasuk tools yang mungkin tidak tersedia:
-```bash
-fores image.png --all
-```
-
----
-
-## 🔧 Opsi Steganografi (v2.0)
-
-### **LSB Analysis**
-```bash
-# Zsteg full analysis untuk PNG/BMP
-fores image.png --lsb
-```
-
-### **Steghide**
-```bash
-# Ekstraksi steghide (tanpa password)
-fores image.jpg --steghide
-```
-
-### **Outguess**
-```bash
-# Outguess extraction untuk JPEG
-fores image.jpg --outguess
-```
-
-### **Zsteg**
-```bash
-# Analisis lengkap zsteg
-fores image.png --zsteg
-```
-
-### **PNG Check**
-```bash
-# Validasi PNG
-fores image.png --pngcheck
-```
-
-### **JPEG Steganography**
-```bash
-# JPEG steganalysis (jpseek/jphs)
-fores image.jpg --jpsteg
-```
-
-### **File Carving**
-```bash
-# Ekstraksi file dengan foremost
-fores image.png --foremost
-```
-
----
-
-## 🔓 Brute Force (v2.0)
-
-### **Brute Force Steghide**
-```bash
-# Brute force dengan delay default 5 detik
-fores image.png --bruteforce
-
-# Brute force dengan delay 7 detik
-fores image.png --bruteforce --delay 7
-
-# Brute force dengan wordlist kustom
-fores image.png --bruteforce --wordlist mypasswords.txt
-```
-
-> ⚠️ Default wordlist berisi 80+ password umum (password, flag, ctf, hack, dll)
-
----
-
-## 🎨 Analisis Gambar Lanjutan (v2.0)
-
-### **Color Remapping**
-Buat 8 variant palette remap seperti AperiSolve:
-```bash
-fores image.png --remap
-```
-Output: `*_remap/variant_1.png` hingga `variant_8.png`
-
-### **Alpha Channel**
-Ekstrak dan analisis alpha channel (untuk PNG):
-```bash
-fores image.png --alpha
-```
-
-### **Deep Analysis**
-Analisis full bit plane (bit 0-7, bukan hanya 6-7):
-```bash
-fores image.png --deep
-```
-
-### **Kombinasi Lengkap**
-```bash
-# Full analysis untuk image
-fores image.png --all
-
-# Kombinasi spesifik
-fores image.png --deep --alpha --remap --steghide
-```
-
----
-
-## 🔓 Auto-Decode & Extract (v2.1)
-
-### **Menggunakan --decode**
-Otomatis mendeteksi dan mendecode data terenkripsi dalam file:
-
-```bash
-# Contoh: File logs.txt berisi base64 encoded image
-fores logs.txt --decode
-
-# Output akan otomatis:
-# 1. Mendeteksi encoding (base64/hex/binary)
-# 2. Decode dan save sebagai file (jpg/png/gif/zip/etc)
-# 3. Auto-analisis file hasil decode
-```
-
-### **Menggunakan --extract**
-Ekstrak semua file tersembunyi dari encoded text:
-
-```bash
-fores encoded_data.txt --extract
-```
-
-### **Cara Kerja Auto-Decode**
-Tools akan secara otomatis:
-1. **Scan** konten file untuk pola encoding
-2. **Deteksi** tipe encoding (Base64, Hex, Binary)
-3. **Decode** data yang ditemukan
-4. **Identifikasi** tipe file dari header
-5. **Simpan** dengan ekstensi yang sesuai
-6. **Analisis** file hasil decode untuk flag
-
-### **Contoh Penggunaan Real**
-
-**Soal CTF:** File `logs.txt` berisi base64 encoded image
-```bash
-# Terminal manual:
-base64 -d logs.txt > hidden_image.jpg
-
-# Dengan ForesTools (otomatis):
-fores logs.txt --decode
-# Output: logs_decoded_b64_0.jpg (auto-detected sebagai JPG)
-```
-
-**Soal CTF:** File `secret.txt` berisi hex encoded zip
-```bash
-fores secret.txt --decode
-# Output: secret_decoded_hex_0.zip
-```
-
----
-
-## 🌐 Network Forensics - PCAP Analysis (v2.2)
-
-### **Analisis File PCAP**
-Tools sekarang mendukung analisis file capture network (PCAP) untuk menemukan flag dan data tersembunyi:
-
-```bash
-# Analisis full PCAP
-fores capture.pcap --pcap
-
-# Contoh output:
-# - HTTP objects (file yang ditransfer)
-# - DNS queries (bisa ada flag di subdomain)
-# - Credentials (FTP, HTTP Basic Auth, Telnet)
-# - TCP streams (reconstructed)
-# - Flags di packet data
-```
-
-### **Fitur PCAP Analysis**
-
-| Fitur | Deskripsi |
-|-------|-----------|
-| **HTTP Objects** | Ekstrak semua file dari HTTP traffic (images, zip, dll) |
-| **DNS Queries** | Ambil semua query DNS, cari flag di subdomain |
-| **Credentials** | Cari username/password di FTP/HTTP/Telnet |
-| **Flag Search** | Scan semua packet data untuk flag |
-| **Stream Reconstruction** | Reconstruct TCP streams untuk lihat data lengkap |
-| **Port Analysis** | Deteksi port tidak umum |
-
-### **Contoh Kasus CTF PCAP**
-
-**Kasus 1: HTTP File Transfer**
-```bash
-fores challenge.pcap --pcap
-# Output: challenge_http_objects/image.png
-# Flag ditemukan di dalam image
-```
-
-**Kasus 2: DNS Exfiltration**
-```bash
-fores dns_traffic.pcap --pcap
-# Menemukan: flag.picoctf.com di DNS queries
-# Atau: base64 encoded data di subdomain
-```
-
-**Kasus 3: Credentials in Cleartext**
-```bash
-fores ftp_traffic.pcap --pcap
-# Output: credentials.txt dengan FTP user/pass
-# Flag ditemukan: picoCTF{ftp_credz}
-```
-
-### **Struktur Output PCAP**
-```
-capture.pcap/
-├── capture_http_objects/     # File dari HTTP
-│   ├── image_001.png
-│   └── secret.zip
-├── capture_streams/          # TCP streams (10 pertama)
-│   ├── stream_0.txt
-│   └── stream_1.txt
-├── capture_dns_queries.txt   # Semua DNS queries
-├── capture_credentials.txt   # Username/password
-└── capture_pcap_info.txt     # Metadata capture
-```
-
----
-
-## 📁 Output Folder
-
-Semua hasil ekstraksi disimpan di **folder yang sama dengan file input**:
+## Output Folder
 
 | Folder | Kegunaan |
 |--------|----------|
-| `*_bitplanes/` | Representasi visual bit 0-7 per channel (R/G/B/Alpha) |
-| `*_channels/` | Saluran warna terpisah (red.png, green.png, blue.png, alpha.png) |
-| `*_remap/` | 8 variant color palette remap |
-| `*_zsteg/` | Output dari zsteg extraction |
-| `*_steghide/` | Output dari steghide extraction |
-| `*_outguess/` | Output dari outguess extraction |
-| `*_foremost/` | File yang di-carve oleh foremost |
-| `*_bruteforce/` | Hasil brute force attempt |
-| `*_decoded_b64_*` | File hasil decode base64 (auto-detect) |
-| `*_decoded_hex_*` | File hasil decode hex (auto-detect) |
-| `*_decoded_bin_*` | File hasil decode binary (auto-detect) |
-| `*_http_objects/` | File dari HTTP traffic (PCAP) |
-| `*_streams/` | TCP streams hasil reconstruction (PCAP) |
-| `*_pcap_info.txt` | Metadata file PCAP |
-| `*_dns_queries.txt` | DNS queries dari PCAP |
-| `*_credentials.txt` | Credentials dari PCAP |
-| `_extracted_*/` | File tersembunyi dari binwalk |
-| `fixed_*`, `repaired_*` | File dengan header diperbaiki |
+| `*_bitplanes/` | Bit plane visual (0-7) |
+| `*_channels/` | RGBA channels terpisah |
+| `*_remap/` | Color palette variants |
+| `*_zsteg/`, `*_steghide/`, `*_outguess/` | Output steganography tools |
+| `*_foremost/` | File carving results |
+| `*_bruteforce/` | Brute force results |
+| `*_decoded_*` | Hasil decode (b64/hex/bin) |
+| `*_http_objects/`, `*_streams/` | PCAP analysis results |
+| `_extracted_*/` | Binwalk extraction |
+| `fixed_*`, `repaired_*` | Repaired headers |
 
 ---
 
-## 📋 Cheat Sheet
+## Cheat Sheet
 
 ```bash
-# ===== DASAR =====
-fores file.png                    # Analisis dasar
-fores -f "picoCTF{" file.png     # Dengan custom flag format
+# Analisis dasar
+fores file.png
 
-# ===== OTOMATIS =====
-fores file.png --auto             # Auto-detect & jalankan tools
-fores file.png --all              # Full analysis
+# Steganografi
+fores file.png --lsb --deep --alpha
+fores file.jpg --steghide
+fores file.jpg --outguess
 
-# ===== STEGANOGRAPHY =====
-fores file.png --lsb              # LSB analysis (zsteg)
-fores file.jpg --steghide         # Steghide
-fores file.jpg --outguess         # Outguess
-fores file.png --pngcheck         # PNG validation
-fores file.jpg --jpsteg           # JPEG steganalysis
-fores file.png --foremost         # File carving
+# Brute force
+fores file.png --bruteforce
 
-# ===== BRUTE FORCE =====
-fores file.png --bruteforce                       # Default (5s delay, 80 passwords)
-fores file.png --bruteforce --delay 10            # Delay 10 detik
-fores file.png --bruteforce --wordlist dict.txt   # Custom wordlist
-
-# ===== AUTO-DECODE (BARU!) =====
-fores logs.txt --decode           # Auto-decode base64/hex/binary
-fores secret.txt --extract        # Ekstrak semua file tersembunyi
-fores mystery.bin --decode        # Decode otomatis dengan deteksi tipe file
-
-# ===== NETWORK FORENSICS (BARU v2.2!) =====
-fores capture.pcap --pcap         # Full PCAP analysis
-fores network.pcap --pcap         # Ekstrak HTTP/DNS/flags dari PCAP
-
-# ===== GAMBAR LANJUTAN =====
-fores file.png --remap            # Color remapping (8 variants)
-fores file.png --alpha            # Alpha channel analysis
-fores file.png --deep             # Full bit plane (0-7)
-fores file.png --deep --alpha     # Kombinasi
-```
-
----
-
-## 🔍 Tips
-
-- ✅ Tools **otomatis mendeteksi jenis file** dan menjalankan analisis yang sesuai
-- ✅ Tools steganografi yang tidak terinstall akan **otomatis dilewati**
-- 🔍 Jika flag **tidak ditemukan otomatis**, periksa folder `*_bitplanes/` atau `*_channels/` secara manual
-- 💡 Gunakan `--auto` untuk analisis cepat tanpa perlu memilih tools satu per satu
-- 🎯 **Soal encoding**: Jika file berisi base64/hex (contoh: `logs.txt`), gunakan `--decode` untuk otomatis decode jadi image/file
-- 📦 **File tersembunyi**: Hasil decode otomatis disimpan dengan format yang benar (jpg, png, zip, dll)
-- 🌐 **Network Forensics**: File `.pcap` gunakan `--pcap` untuk analisis lengkap (HTTP, DNS, credentials, flags)
-
-### **Contoh Kasus CTF Umum**
-
-**Kasus 1: File berisi base64 image**
-```bash
-# Soal: logs.txt berisi base64 yang jadi image
+# Auto-decode & network
 fores logs.txt --decode
-# Output: logs_decoded_b64_0.jpg
-```
-
-**Kasus 2: Steganography dengan password**
-```bash
-# Soal: image.jpg dengan steghide, password "ctf"
-fores image.jpg --steghide
-# Atau brute force jika password tidak diketahui
-fores image.jpg --bruteforce
-```
-
-**Kasus 3: LSB dalam PNG**
-```bash
-# Soal: hidden data di bit-plane
-fores image.png --lsb --deep
-```
-
-**Kasus 4: Network Forensics (PCAP)**
-```bash
-# Soal: Flag tersembunyi di HTTP traffic
 fores capture.pcap --pcap
-# Output: capture_http_objects/flag.png
 
-# Soal: DNS exfiltration
-fores dns.pcap --pcap
-# Cek: capture_dns_queries.txt
-
-# Soal: Credentials dalam cleartext
-fores ftp.pcap --pcap
-# Cek: capture_credentials.txt
+# Full analysis
+fores file.png --all
 ```
 
 ---
 
-> 🛠️ Dikembangkan oleh **Syaaddd** — untuk para pejuang CTF!  
-> 🌐 [GitHub Repository](https://github.com/Syaaddd/SForensicsTools)
+## Tips
+
+- Gunakan `--auto` untuk analisis cepat tanpa memilih tools satu per satu
+- Tools yang tidak terinstall akan otomatis dilewati
+- Periksa folder `*_bitplanes/` dan `*_channels/` jika flag tidak ditemukan otomatis
+- File `.pcap` gunakan `--pcap` untuk ekstrak HTTP objects, DNS queries, dan credentials
+
+---
+
+Dikembangkan oleh **Syaaddd** — untuk para pejuang CTF!  
+[GitHub Repository](https://github.com/Syaaddd/SForensicsTools)
