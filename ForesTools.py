@@ -562,24 +562,32 @@ def analyze_outguess(filepath: Path):
     except Exception as e:
         print(f"{Fore.RED}[OUTGUESS] Failed: {e}{Style.RESET_ALL}")
 
-def analyze_foremost(filepath: Path):
+def analyze_foremost(filepath: Path, quick: bool = True):
     if not AVAILABLE_TOOLS.get('foremost', False):
         print(f"{Fore.YELLOW}[FOREMOST] Not installed. Skipping.{Style.RESET_ALL}")
+        return
+    
+    # Check file size - skip very large files in quick mode
+    file_size = filepath.stat().st_size
+    if quick and file_size > 50 * 1024 * 1024:  # 50MB
+        print(f"{Fore.YELLOW}[FOREMOST] File too large ({file_size / 1024 / 1024:.1f}MB), skipping in quick mode.{Style.RESET_ALL}")
         return
     
     print(f"{Fore.GREEN}[FOREMOST] Running file carving...{Style.RESET_ALL}")
     output_dir = filepath.parent / f"{filepath.stem}_foremost"
     
     try:
+        # Use shorter timeout for quick mode
+        timeout = 15 if quick else 60
         subprocess.run(
             ["foremost", "-i", str(filepath), "-o", str(output_dir), "-v"],
-            capture_output=True, timeout=60
+            capture_output=True, timeout=timeout
         )
         if output_dir.exists():
             files_found = list(output_dir.rglob("*"))
             if files_found:
                 print(f"{Fore.GREEN}[FOREMOST] Found {len(files_found)} file(s){Style.RESET_ALL}")
-                for f in files_found[:10]:
+                for f in files_found[:5]:  # Limit to 5 files in quick mode
                     if f.is_file():
                         print(f"  - {f.name}")
                         analyze_strings_and_flags(f)
@@ -1048,6 +1056,89 @@ def check_unusual_ports(filepath: Path):
     except Exception as e:
         print(f"{Fore.YELLOW}[PCAP] Port analysis failed: {e}{Style.RESET_ALL}")
 
+def extract_compressed_disk(filepath: Path) -> Path:
+    """Extract compressed disk image (GZIP, ZIP, etc.) and return extracted file path"""
+    print(f"{Fore.CYAN}[DISK] Detected compressed file, extracting...{Style.RESET_ALL}")
+    
+    output_dir = filepath.parent / f"{filepath.stem}_extracted"
+    output_dir.mkdir(exist_ok=True)
+    
+    file_type = subprocess.getoutput(f"file -b '{filepath}'").lower()
+    
+    try:
+        # Handle GZIP - use Python's gzip module for better control
+        if "gzip" in file_type:
+            import gzip
+            # Try to get original filename from file output
+            orig_name = "disk_image.dd"
+            if "was \"" in file_type:
+                # Extract filename from "was \"filename\""
+                start = file_type.find("was \"") + 5
+                end = file_type.find("\"", start)
+                if end > start:
+                    orig_name = file_type[start:end]
+            
+            extracted_path = output_dir / orig_name
+            
+            # Extract with progress indicator
+            print(f"{Fore.CYAN}[DISK] Extracting GZIP file...{Style.RESET_ALL}")
+            with gzip.open(filepath, 'rb') as f_in:
+                with open(extracted_path, 'wb') as f_out:
+                    # Copy in chunks to show progress
+                    chunk_size = 1024 * 1024  # 1MB chunks
+                    while True:
+                        chunk = f_in.read(chunk_size)
+                        if not chunk:
+                            break
+                        f_out.write(chunk)
+            
+            if extracted_path.exists() and extracted_path.stat().st_size > 0:
+                print(f"{Fore.GREEN}[+] Extracted GZIP to: {extracted_path.name} ({extracted_path.stat().st_size / 1024 / 1024:.1f}MB){Style.RESET_ALL}")
+                add_to_summary("DISK-EXTRACT", f"GZIP extracted to {extracted_path.name}")
+                return extracted_path
+        
+        # Handle ZIP
+        elif "zip" in file_type:
+            import zipfile
+            extracted_path = output_dir / f"{filepath.stem}_zip"
+            extracted_path.mkdir(exist_ok=True)
+            
+            print(f"{Fore.CYAN}[DISK] Extracting ZIP file...{Style.RESET_ALL}")
+            with zipfile.ZipFile(filepath, 'r') as zip_ref:
+                zip_ref.extractall(extracted_path)
+            
+            # Find the largest file (likely the disk image)
+            files = [f for f in extracted_path.rglob("*") if f.is_file()]
+            if files:
+                largest = max(files, key=lambda x: x.stat().st_size)
+                print(f"{Fore.GREEN}[+] Extracted ZIP, largest file: {largest.name} ({largest.stat().st_size / 1024 / 1024:.1f}MB){Style.RESET_ALL}")
+                add_to_summary("DISK-EXTRACT", f"ZIP extracted, largest: {largest.name}")
+                return largest
+        
+        # Handle 7Z
+        elif "7-zip" in file_type or "7z" in file_type or filepath.suffix.lower() == '.7z':
+            extracted_path = output_dir / f"{filepath.stem}_7z"
+            extracted_path.mkdir(exist_ok=True)
+            
+            print(f"{Fore.CYAN}[DISK] Extracting 7Z file...{Style.RESET_ALL}")
+            subprocess.run(
+                ["7z", "x", "-y", str(filepath), f"-o{extracted_path}"],
+                capture_output=True, timeout=60
+            )
+            
+            files = [f for f in extracted_path.rglob("*") if f.is_file()]
+            if files:
+                largest = max(files, key=lambda x: x.stat().st_size)
+                print(f"{Fore.GREEN}[+] Extracted 7Z, largest file: {largest.name} ({largest.stat().st_size / 1024 / 1024:.1f}MB){Style.RESET_ALL}")
+                add_to_summary("DISK-EXTRACT", f"7Z extracted, largest: {largest.name}")
+                return largest
+                
+    except Exception as e:
+        print(f"{Fore.YELLOW}[!] Extraction failed: {e}{Style.RESET_ALL}")
+    
+    print(f"{Fore.YELLOW}[!] Could not extract, using original file{Style.RESET_ALL}")
+    return filepath
+
 def analyze_disk_image(filepath: Path):
     """Analyze disk image using strings to find flags (for DISKO CTF challenges) - FAST VERSION"""
     print(f"{Fore.GREEN}[DISK] Analyzing disk image for hidden flags (FAST MODE)...{Style.RESET_ALL}")
@@ -1252,6 +1343,18 @@ def process_file(filepath: Path, args):
     is_jpg = "jpeg" in file_desc or "jpg" in file_desc
     is_pcap = "pcap" in file_desc or "capture" in file_desc or repaired.suffix.lower() in ['.pcap', '.pcapng', '.cap']
     is_disk = repaired.suffix.lower() in ['.dd', '.img', '.raw', '.iso', '.vmdk', '.qcow2', '.vhd'] or args.disk
+    
+    # Check if it's a compressed disk image (e.g., .crdownload, .gz containing .dd)
+    is_compressed_disk = False
+    if "gzip" in file_desc and (".dd" in file_desc or ".img" in file_desc):
+        is_compressed_disk = True
+        print(f"{Fore.CYAN}[INFO] Detected compressed disk image (GZIP containing disk){Style.RESET_ALL}")
+        repaired = extract_compressed_disk(repaired)
+        is_disk = True
+    elif is_disk and ("gzip" in file_desc or "zip" in file_desc):
+        is_compressed_disk = True
+        print(f"{Fore.CYAN}[INFO] Disk file appears to be compressed, extracting...{Style.RESET_ALL}")
+        repaired = extract_compressed_disk(repaired)
 
     if args.pcap and is_pcap:
         analyze_pcap_full(repaired)
@@ -1290,7 +1393,9 @@ def process_file(filepath: Path, args):
         
         if is_archive:
             if args.foremost or args.all or args.auto:
-                analyze_foremost(repaired)
+                # Use quick mode for auto to prevent hanging on large files
+                is_quick = args.auto and not args.all
+                analyze_foremost(repaired, quick=is_quick)
             if args.auto:
                 analyze_with_binwalk(repaired)
         
