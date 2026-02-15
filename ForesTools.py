@@ -9,6 +9,8 @@ import math
 import time
 from pathlib import Path
 from colorama import Fore, Style, init
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 
 try:
     from PIL import Image
@@ -20,6 +22,8 @@ except ImportError:
 init(autoreset=True)
 
 AVAILABLE_TOOLS = {}
+FLAG_FOUND = False
+FLAG_LOCK = Lock()
 
 DEFAULT_WORDLIST = [
     "password", "123456", "12345678", "123456789", "flag", "ctf", "steg",
@@ -71,9 +75,19 @@ def check_tool_availability():
     return AVAILABLE_TOOLS
 
 def reset_globals():
-    global flag_summary, base64_collector
+    global flag_summary, base64_collector, FLAG_FOUND
     flag_summary = []
     base64_collector = []
+    FLAG_FOUND = False
+
+def check_early_exit():
+    global FLAG_FOUND
+    return FLAG_FOUND
+
+def signal_flag_found():
+    global FLAG_FOUND
+    with FLAG_LOCK:
+        FLAG_FOUND = True
 
 COMMON_FLAG_PATTERNS = [
     r'picoCTF\{[^}]+\}',
@@ -86,6 +100,9 @@ def add_to_summary(category: str, content: str):
     entry = f"[{category}] {content.strip()}"
     if entry not in flag_summary:
         flag_summary.append(entry)
+    if "FLAG" in category:
+        signal_flag_found()
+        print(f"{Fore.GREEN}[EARLY EXIT] Flag found! Signaling stop...{Style.RESET_ALL}")
 
 FILE_SIGNATURES = {
     "png": b"\x89\x50\x4E\x47\x0D\x0A\x1A\x0A",
@@ -150,6 +167,10 @@ def decode_binary(candidate: str):
     return None
 
 def auto_decode_and_extract(filepath: Path):
+    if check_early_exit():
+        print(f"{Fore.YELLOW}[AUTO-DECODE] Skipping - flag already found{Style.RESET_ALL}")
+        return
+    
     print(f"{Fore.CYAN}[AUTO-DECODE] Checking for encoded data...{Style.RESET_ALL}")
     
     try:
@@ -434,6 +455,10 @@ def analyze_image(filepath: Path, deep: bool = False, alpha: bool = False):
     except: pass
 
 def analyze_with_binwalk(filepath: Path):
+    if check_early_exit():
+        print(f"{Fore.YELLOW}[BINWALK] Skipping - flag already found{Style.RESET_ALL}")
+        return
+    
     output_dir = filepath.parent / f"_extracted_{filepath.name}"
     try:
         subprocess.run(
@@ -455,6 +480,10 @@ def analyze_with_binwalk(filepath: Path):
 def analyze_zsteg(filepath: Path):
     if not AVAILABLE_TOOLS.get('zsteg', False):
         print(f"{Fore.YELLOW}[ZSTEG] Not installed. Skipping.{Style.RESET_ALL}")
+        return
+    
+    if check_early_exit():
+        print(f"{Fore.YELLOW}[ZSTEG] Skipping - flag already found{Style.RESET_ALL}")
         return
     
     print(f"{Fore.GREEN}[ZSTEG] Running full LSB analysis...{Style.RESET_ALL}")
@@ -493,6 +522,10 @@ def analyze_zsteg(filepath: Path):
 def analyze_steghide(filepath: Path, password: str = None):
     if not AVAILABLE_TOOLS.get('steghide', False):
         print(f"{Fore.YELLOW}[STEGHIDE] Not installed. Skipping.{Style.RESET_ALL}")
+        return
+    
+    if check_early_exit():
+        print(f"{Fore.YELLOW}[STEGHIDE] Skipping - flag already found{Style.RESET_ALL}")
         return
     
     print(f"{Fore.GREEN}[STEGHIDE] Attempting extraction...{Style.RESET_ALL}")
@@ -721,7 +754,7 @@ def color_remapping(filepath: Path):
     except Exception as e:
         print(f"{Fore.RED}[!] Color remapping failed: {e}{Style.RESET_ALL}")
 
-def bruteforce_steghide(filepath: Path, wordlist: list = None, delay: float = 5.0):
+def bruteforce_steghide(filepath: Path, wordlist: list = None, delay: float = 0.1, parallel: int = 5):
     if not AVAILABLE_TOOLS.get('steghide', False):
         print(f"{Fore.YELLOW}[BRUTEFORCE] Steghide not installed. Skipping.{Style.RESET_ALL}")
         return
@@ -729,44 +762,53 @@ def bruteforce_steghide(filepath: Path, wordlist: list = None, delay: float = 5.
     if wordlist is None:
         wordlist = DEFAULT_WORDLIST
     
-    print(f"{Fore.GREEN}[BRUTEFORCE] Starting brute force with {len(wordlist)} passwords...{Style.RESET_ALL}")
-    print(f"{Fore.YELLOW}[BRUTEFORCE] Delay: {delay} seconds between attempts{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}[BRUTEFORCE] Starting PARALLEL brute force ({parallel} threads) with {len(wordlist)} passwords...{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}[BRUTEFORCE] Delay: {delay}s (fast mode){Style.RESET_ALL}")
     
     output_dir = filepath.parent / f"{filepath.stem}_bruteforce"
     output_dir.mkdir(exist_ok=True)
     
-    found = False
-    for i, password in enumerate(wordlist):
-        print(f"[{i+1}/{len(wordlist)}] Trying: {password}...", end=" ")
-        
+    found = {"value": False}
+    found_password = {"value": None}
+    found_content = {"value": None}
+    
+    def try_password(password):
+        if found["value"]:
+            return None
         try:
             output_file = output_dir / f"out_{password}.txt"
             result = subprocess.run(
                 ["steghide", "extract", "-sf", str(filepath), "-xf", str(output_file), "-f", "-p", password],
-                capture_output=True, text=True, timeout=30
+                capture_output=True, text=True, timeout=15
             )
             
             if result.returncode == 0 and output_file.exists() and output_file.stat().st_size > 0:
-                print(f"{Fore.GREEN}SUCCESS!{Style.RESET_ALL}")
                 content = output_file.read_text(errors='ignore')
+                return (password, content)
+        except:
+            pass
+        return None
+    
+    with ThreadPoolExecutor(max_workers=parallel) as executor:
+        futures = {executor.submit(try_password, pw): pw for pw in wordlist}
+        
+        for future in as_completed(futures):
+            if check_early_exit():
+                break
+            result = future.result()
+            if result:
+                password, content = result
+                print(f"{Fore.GREEN}[BRUTEFORCE] SUCCESS! Password: {password}{Style.RESET_ALL}")
                 print(f"{Fore.CYAN}Content: {content[:200]}{Style.RESET_ALL}")
                 collect_base64_from_text(content)
                 for pattern in COMMON_FLAG_PATTERNS:
                     matches = re.findall(pattern, content, re.IGNORECASE)
                     for match in matches:
                         add_to_summary("BRUTEFORCE-FLAG", f"Password: '{password}' → {match}")
-                found = True
+                found["value"] = True
                 break
-            else:
-                print(f"{Fore.RED}failed{Style.RESET_ALL}")
-        
-        except Exception as e:
-            print(f"{Fore.RED}error: {e}{Style.RESET_ALL}")
-        
-        if delay > 0 and i < len(wordlist) - 1:
-            time.sleep(delay)
     
-    if not found:
+    if not found["value"]:
         print(f"{Fore.YELLOW}[BRUTEFORCE] No password found.{Style.RESET_ALL}")
 
 def analyze_pcap_basic(filepath: Path):
@@ -1873,6 +1915,37 @@ def process_file(filepath: Path, args):
         print(f"{Fore.CYAN}[INFO] Disk file appears to be compressed, extracting...{Style.RESET_ALL}")
         repaired = extract_compressed_disk(repaired)
 
+    if args.quick:
+        print(f"\n{Fore.MAGENTA}[QUICK-MODE] 🚀 Ultra-fast CTF analysis - Early exit enabled{Style.RESET_ALL}")
+        analyze_strings_and_flags(repaired, args.format)
+        auto_decode_and_extract(repaired)
+        
+        if is_image:
+            if is_png and AVAILABLE_TOOLS.get('zsteg'):
+                analyze_zsteg(repaired)
+                if check_early_exit():
+                    print_final_report(filepath.name)
+                    return {'flags': [f for f in flag_summary if 'FLAG' in f], 'extractions': [e for e in flag_summary if 'EXTRACT' in e], 'base64': base64_collector.copy()}
+            if is_jpg and AVAILABLE_TOOLS.get('steghide'):
+                analyze_steghide(repaired)
+                if check_early_exit():
+                    print_final_report(filepath.name)
+                    return {'flags': [f for f in flag_summary if 'FLAG' in f], 'extractions': [e for e in flag_summary if 'EXTRACT' in e], 'base64': base64_collector.copy()}
+        
+        if is_pcap:
+            analyze_pcap_basic(filepath)
+            search_pcap_flags(filepath)
+            if check_early_exit():
+                print_final_report(filepath.name)
+                return {'flags': [f for f in flag_summary if 'FLAG' in f], 'extractions': [e for e in flag_summary if 'EXTRACT' in e], 'base64': base64_collector.copy()}
+        
+        print_final_report(filepath.name)
+        return {
+            'flags': [item for item in flag_summary if "-FLAG" in item or "FLAG-" in item],
+            'extractions': [item for item in flag_summary if "-EXTRACT" in item],
+            'base64': base64_collector.copy()
+        }
+
     if args.pcap and is_pcap:
         analyze_pcap_full(repaired)
         print_final_report(filepath.name)
@@ -1922,7 +1995,7 @@ def process_file(filepath: Path, args):
                 wordlist_path = Path(args.wordlist)
                 if wordlist_path.exists():
                     wordlist = wordlist_path.read_text().splitlines()
-            bruteforce_steghide(repaired, wordlist, args.delay)
+            bruteforce_steghide(repaired, wordlist, args.delay, args.parallel)
         
         if is_disk or args.disk:
             analyze_disk_image(repaired)
@@ -1955,7 +2028,7 @@ def process_file(filepath: Path, args):
                     wordlist_path = Path(args.wordlist)
                     if wordlist_path.exists():
                         wordlist = wordlist_path.read_text().splitlines()
-                bruteforce_steghide(repaired, wordlist, args.delay)
+                bruteforce_steghide(repaired, wordlist, args.delay, args.parallel)
         
         elif is_archive:
             print(f"{Fore.GREEN}[ARCHIVE] Running binwalk...{Style.RESET_ALL}")
@@ -2086,7 +2159,8 @@ def main():
     parser.add_argument("--pngcheck", action="store_true", help="PNG validation")
     parser.add_argument("--jpsteg", action="store_true", help="JPEG steganalysis (jpseek/jphs)")
     parser.add_argument("--bruteforce", action="store_true", help="Brute force steghide passwords")
-    parser.add_argument("--delay", type=float, default=5.0, help="Delay between bruteforce attempts (seconds)")
+    parser.add_argument("--delay", type=float, default=0.1, help="Delay between bruteforce attempts (seconds, default: 0.1 for fast mode)")
+    parser.add_argument("--parallel", type=int, default=5, help="Parallel threads for bruteforce (default: 5)")
     parser.add_argument("--wordlist", type=str, help="Custom wordlist file for bruteforce")
     parser.add_argument("--remap", action="store_true", help="Color palette remapping (8 variants)")
     parser.add_argument("--alpha", action="store_true", help="Analyze alpha channel")
@@ -2096,6 +2170,7 @@ def main():
     parser.add_argument("--pcap", action="store_true", help="Full PCAP network analysis with attack detection")
     parser.add_argument("--disk", action="store_true", help="Analyze disk image for flags using strings")
     parser.add_argument("--windows", action="store_true", help="Analyze Windows Event Logs for forensic evidence")
+    parser.add_argument("--quick", action="store_true", help="QUICK mode: Ultra-fast CTF analysis (strings + zsteg + basic tools + early exit)")
     args = parser.parse_args()
 
     # Resolve input files
