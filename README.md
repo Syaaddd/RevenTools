@@ -3,7 +3,7 @@
 > **Smart Forensic Toolkit for CTF Challenges** 🔐  
 > Alat otomatis untuk analisis file CTF — steganografi, header repair, ekstraksi tersembunyi, network forensics, disk forensics, dan deteksi flag 🚩
 
-**Versi: v2.4** — Mendukung steganography tools, network forensics (PCAP) 🌐 dengan attack detection, disk forensics 💾, dan auto-decode 🔄
+**Versi: v2.5** — Mendukung steganography tools, network forensics (PCAP) 🌐 dengan attack detection, disk forensics 💾, Windows Event Log analysis 🪟, dan auto-decode 🔄
 
 ---
 
@@ -132,6 +132,20 @@ fores challenge.img --all     # Full analysis dengan semua tools 🔥
 # - Limit hasil keyword dan embedded files
 ```
 
+### 🪟 Windows Event Log Analysis
+```bash
+fores security.evtx --windows    # Analisis Windows Event Logs 🪟
+fores *.evtx --windows           # Analisis semua file event log 📂
+fores logs/ --windows            # Analisis folder berisi event logs 📁
+```
+
+**Windows Event Log Analysis** secara otomatis mendeteksi:
+- **Installation Evidence** - Mencari bukti instalasi software (MSI, setup, install) 📦
+- **Execution Evidence** - Mencari cmd.exe, powershell.exe, process start ⚡
+- **Shutdown Evidence** - Mencari EventID 6008, 1074, shutdown events 🔌
+- **Logon Evidence** - Mencari EventID 4624, 4625 (logon success/fail) 🔑
+- **Flag Extraction** - Mencari flag tersembunyi dalam event log 🚩
+
 ---
 
 ## 📁 Output Folder
@@ -147,6 +161,7 @@ fores challenge.img --all     # Full analysis dengan semua tools 🔥
 | `*_decoded_*` | Hasil decode (b64/hex/bin) 🔠 |
 | `*_http_objects/`, `*_streams/` | PCAP analysis results 🌐 |
 | `*_disk_analysis/` | Disk image analysis results 💾 |
+| `*_event_analysis/` | Windows Event Log analysis results 🪟 |
 | `_extracted_*/` | Binwalk extraction 📦 |
 | `fixed_*`, `repaired_*` | Repaired headers 🔧 |
 
@@ -173,6 +188,9 @@ fores capture.pcap --pcap     # Dengan attack detection otomatis
 # Disk forensics 💾
 fores disk.img --disk
 
+# Windows Event Log forensics 🪟
+fores security.evtx --windows
+
 # Full analysis 💥
 fores file.png --all
 ```
@@ -188,6 +206,7 @@ fores file.png --all
 - 💾 Untuk disk image (`.img`, `.dd`, `.raw`), gunakan `--disk` untuk mencari flag dengan strings dan ekstrak file tersembunyi (sekarang 3-5x lebih cepat!) 🕵️⚡
 - 🧪 Cobalah `--remap` pada gambar dengan noise tinggi — sering menyembunyikan flag di palette warna! 🌈
 - ⚡ Analisis disk image sekarang menggunakan FAST MODE: scan 10MB pertama saja, string min. 8 karakter, dan limit hasil untuk kecepatan maksimal 🚀
+- 🪟 Untuk file Windows Event Logs (.evtx), gunakan `--windows` untuk menganalisis malware infection, mencari bukti installation, execution, dan persistence mechanism 🔍
 
 ---
 
