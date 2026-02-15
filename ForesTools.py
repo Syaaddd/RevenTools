@@ -709,6 +709,269 @@ def analyze_graphicsmagick(filepath: Path):
     except Exception as e:
         print(f"{Fore.YELLOW}[GM-IDENTIFY] Failed: {e}{Style.RESET_ALL}")
 
+def analyze_exif_deep(filepath: Path):
+    """Deep EXIF analysis for steganography detection"""
+    print(f"{Fore.GREEN}[EXIF-DEEP] Analyzing EXIF metadata...{Style.RESET_ALL}")
+    
+    flags_found = []
+    suspicious_data = []
+    
+    try:
+        result = subprocess.run(
+            ["exiftool", "-a", "-u", "-g1", str(filepath)],
+            capture_output=True, text=True, timeout=30
+        )
+        
+        output = result.stdout
+        print(f"{Fore.CYAN}[EXIF-DEEP] Full EXIF Data:{Style.RESET_ALL}")
+        print(output[:2000])
+        
+        collect_base64_from_text(output)
+        
+        suspicious_tags = [
+            'Comment', 'ImageDescription', 'UserComment', 'XPComment',
+            'Artist', 'Copyright', 'Software', 'Make', 'Model'
+        ]
+        
+        for tag in suspicious_tags:
+            if tag.lower() in output.lower():
+                pattern = f"{tag}.*?:.*?([A-Za-z0-9+/]{{20,}})"
+                matches = re.findall(pattern, output, re.IGNORECASE)
+                if matches:
+                    suspicious_data.append((tag, matches))
+        
+        hidden_patterns = [
+            r'data:image/(?:base64|jpeg|png);base64,([A-Za-z0-9+/=]+)',
+            r'(?:steganography|steghide|outguess|zsteg)',
+            r'(?:hidden|secret|embedded).*?([A-Za-z0-9+/]{20,})',
+        ]
+        
+        for pattern in hidden_patterns:
+            matches = re.findall(pattern, output, re.IGNORECASE)
+            for match in matches:
+                suspicious_data.append(("HiddenPattern", match))
+        
+        for pattern in COMMON_FLAG_PATTERNS:
+            flag_matches = re.findall(pattern, output, re.IGNORECASE)
+            for match in flag_matches:
+                flags_found.append(match)
+                print(f"{Fore.GREEN}[!] FLAG in EXIF: {match}{Style.RESET_ALL}")
+                add_to_summary("EXIF-FLAG", match)
+        
+        if suspicious_data:
+            print(f"{Fore.YELLOW}[!] Suspicious EXIF data found:{Style.RESET_ALL}")
+            for tag, data in suspicious_data:
+                print(f"  {tag}: {str(data)[:80]}")
+                add_to_summary("EXIF-SUSPICIOUS", f"{tag}: {str(data)[:60]}")
+        
+        exif_dir = filepath.parent / f"{filepath.stem}_exif"
+        exif_dir.mkdir(exist_ok=True)
+        exif_file = exif_dir / "full_exif.txt"
+        with open(exif_file, 'w') as f:
+            f.write(output)
+        
+        add_to_summary("EXIF-EXTRACT", f"Saved to '{exif_file.name}'")
+        
+    except FileNotFoundError:
+        print(f"{Fore.YELLOW}[EXIF-DEEP] ExifTool not installed.{Style.RESET_ALL}")
+    except Exception as e:
+        print(f"{Fore.RED}[EXIF-DEEP] Failed: {e}{Style.RESET_ALL}")
+
+def analyze_steg_methods(filepath: Path):
+    """Detect which steganography method might have been used"""
+    print(f"{Fore.GREEN}[STEG-DETECT] Detecting steganography method...{Style.RESET_ALL}")
+    
+    if not HAS_PIL:
+        print(f"{Fore.RED}[!] Pillow not installed. Skipping.{Style.RESET_ALL}")
+        return
+    
+    results = {
+        'lsb_likely': False,
+        'zsteg_likely': False,
+        'steghide_likely': False,
+        'outguess_likely': False,
+        'pixel_indicators': []
+    }
+    
+    try:
+        img = Image.open(filepath)
+        pixels = np.array(img)
+        
+        if len(pixels.shape) == 3:
+            height, width, channels = pixels.shape
+        else:
+            height, width = pixels.shape
+            channels = 1
+        
+        flat_pixels = pixels.flatten()
+        
+        lsb_zero_count = np.sum(flat_pixels % 2 == 0)
+        lsb_one_count = np.sum(flat_pixels % 2 == 1)
+        lsb_ratio = lsb_one_count / (lsb_zero_count + lsb_one_count + 1)
+        
+        if 0.48 < lsb_ratio < 0.52:
+            results['lsb_likely'] = True
+            results['pixel_indicators'].append("LSB distribution is nearly random - possible LSB steganography")
+            print(f"{Fore.CYAN}[STEG-DETECT] LSB ratio: {lsb_ratio:.4f} (random = 0.5){Style.RESET_ALL}")
+        
+        if channels >= 3:
+            r_channel = pixels[:,:,0]
+            g_channel = pixels[:,:,1]
+            b_channel = pixels[:,:,2]
+            
+            r_variance = np.var(r_channel)
+            g_variance = np.var(g_channel)
+            b_variance = np.var(b_channel)
+            
+            if abs(r_variance - g_variance) > 1000 or abs(g_variance - b_variance) > 1000:
+                results['zsteg_likely'] = True
+                results['pixel_indicators'].append("High variance difference between color channels")
+                print(f"{Fore.CYAN}[STEG-DETECT] Color channel variance: R={r_variance:.0f}, G={g_variance:.0f}, B={b_variance:.0f}{Style.RESET_ALL}")
+        
+        if filepath.suffix.lower() in ['.jpg', '.jpeg']:
+            if AVAILABLE_TOOLS.get('steghide'):
+                results['steghide_likely'] = True
+                results['pixel_indicators'].append("JPEG file - steghide/outguess are common methods")
+                print(f"{Fore.CYAN}[STEG-DETECT] JPEG detected - try steghide or outguess{Style.RESET_ALL}")
+        
+        unique_values = len(np.unique(flat_pixels[:10000]))
+        total_values = min(10000, len(flat_pixels))
+        uniqueness_ratio = unique_values / total_values
+        
+        if uniqueness_ratio > 0.8:
+            results['pixel_indicators'].append(f"High color diversity ({uniqueness_ratio:.2%}) - natural image")
+        elif uniqueness_ratio < 0.3:
+            results['pixel_indicators'].append(f"Low color diversity ({uniqueness_ratio:.2%}) - possible processed/hidden data")
+            print(f"{Fore.YELLOW}[!] Low color diversity detected - suspicious{Style.RESET_ALL}")
+        
+        print(f"\n{Fore.CYAN}[STEG-DETECT] Summary:{Style.RESET_ALL}")
+        print(f"  - LSB steganography likely: {results['lsb_likely']}")
+        print(f"  - Zsteg recommended: {results['zsteg_likely']}")
+        print(f"  - Steghide recommended: {results['steghide_likely']}")
+        
+        for indicator in results['pixel_indicators']:
+            print(f"  - {indicator}")
+        
+        add_to_summary("STEG-DETECT", f"LSB:{results['lsb_likely']}, Zsteg:{results['zsteg_likely']}, Steghide:{results['steghide_likely']}")
+        
+    except Exception as e:
+        print(f"{Fore.RED}[STEG-DETECT] Failed: {e}{Style.RESET_ALL}")
+
+def compare_images(filepath1: Path, filepath2: Path):
+    """Compare two images to find hidden data in differences"""
+    if not HAS_PIL:
+        print(f"{Fore.RED}[!] Pillow not installed. Skipping image comparison.{Style.RESET_ALL}")
+        return
+    
+    print(f"{Fore.GREEN}[IMAGE-COMPARE] Comparing two images for differences...{Style.RESET_ALL}")
+    
+    try:
+        img1 = Image.open(filepath1)
+        img2 = Image.open(filepath2)
+        
+        arr1 = np.array(img1)
+        arr2 = np.array(img2)
+        
+        if arr1.shape != arr2.shape:
+            print(f"{Fore.YELLOW}[!] Images have different dimensions: {arr1.shape} vs {arr2.shape}{Style.RESET_ALL}")
+            min_shape = tuple(min(a, b) for a, b in zip(arr1.shape, arr2.shape))
+            arr1 = arr1[:min_shape[0], :min_shape[1], :min_shape[2]] if len(arr1.shape) == 3 else arr1[:min_shape[0], :min_shape[1]]
+            arr2 = arr2[:min_shape[0], :min_shape[1], :min_shape[2]] if len(arr2.shape) == 3 else arr2[:min_shape[0], :min_shape[1]]
+        
+        diff = np.abs(arr1.astype(np.int16) - arr2.astype(np.int16))
+        diff_sum = np.sum(diff)
+        
+        print(f"{Fore.CYAN}[IMAGE-COMPARE] Total pixel difference: {diff_sum}{Style.RESET_ALL}")
+        
+        diff_output_dir = filepath1.parent / f"{filepath1.stem}_compare"
+        diff_output_dir.mkdir(exist_ok=True)
+        
+        diff_img = Image.fromarray(diff.astype(np.uint8))
+        diff_img.save(diff_output_dir / "difference.png")
+        
+        print(f"{Fore.GREEN}[+] Difference image saved to: {diff_output_dir.name}/difference.png{Style.RESET_ALL}")
+        
+        if diff_sum > 0:
+            diff_gray = np.mean(diff, axis=2) if len(diff.shape) == 3 else diff
+            threshold = np.percentile(diff_gray[diff_gray > 0], 95) if np.any(diff_gray > 0) else 0
+            
+            significant_diff = (diff_gray > threshold).astype(np.uint8) * 255
+            sig_diff_img = Image.fromarray(significant_diff)
+            sig_diff_img.save(diff_output_dir / "significant_diff.png")
+            
+            print(f"{Fore.GREEN}[+] Significant differences saved to: {diff_output_dir.name}/significant_diff.png{Style.RESET_ALL}")
+            
+            flat_diff = diff.flatten()
+            non_zero_pixels = np.sum(flat_diff > 0)
+            print(f"{Fore.CYAN}[+] Number of pixels with differences: {non_zero_pixels}{Style.RESET_ALL}")
+            
+            collect_base64_from_text(str(diff[:100]))
+            
+            add_to_summary("IMAGE-COMPARE", f"Differences found: {non_zero_pixels} pixels, total diff: {diff_sum}")
+        else:
+            print(f"{Fore.YELLOW}[!] No visible differences between images{Style.RESET_ALL}")
+            add_to_summary("IMAGE-COMPARE", "No differences found")
+        
+    except Exception as e:
+        print(f"{Fore.RED}[IMAGE-COMPARE] Failed: {e}{Style.RESET_ALL}")
+
+def extract_lsb_data(filepath: Path):
+    """Extract raw LSB data from image"""
+    if not HAS_PIL:
+        print(f"{Fore.RED}[!] Pillow not installed. Skipping LSB extraction.{Style.RESET_ALL}")
+        return
+    
+    print(f"{Fore.GREEN}[LSB-EXTRACT] Extracting raw LSB data...{Style.RESET_ALL}")
+    
+    try:
+        img = Image.open(filepath)
+        arr = np.array(img)
+        
+        if len(arr.shape) == 3:
+            height, width, channels = arr.shape
+        else:
+            height, width = arr.shape
+            channels = 1
+            arr = arr.reshape(height, width, 1)
+        
+        lsb_data = []
+        for c in range(min(channels, 4)):
+            channel = arr[:,:,c]
+            lsb = channel & 1
+            lsb_data.append(lsb.flatten())
+        
+        combined_lsb = np.concatenate(lsb_data)
+        
+        lsb_bytes = np.packbits(combined_lsb)
+        
+        output_dir = filepath.parent / f"{filepath.stem}_lsb_raw"
+        output_dir.mkdir(exist_ok=True)
+        output_file = output_dir / "lsb_raw.bin"
+        
+        with open(output_file, 'wb') as f:
+            f.write(lsb_bytes.tobytes())
+        
+        print(f"{Fore.GREEN}[+] LSB data extracted: {output_file.name} ({len(lsb_bytes)} bytes){Style.RESET_ALL}")
+        
+        try:
+            text_result = lsb_bytes.tobytes()[:1000].decode('utf-8', errors='ignore')
+            if any(c.isprintable() for c in text_result):
+                print(f"{Fore.CYAN}[+] LSB contains text: {text_result[:100]}...{Style.RESET_ALL}")
+                collect_base64_from_text(text_result)
+        except:
+            pass
+        
+        for pattern in COMMON_FLAG_PATTERNS:
+            matches = re.findall(pattern, lsb_bytes.tobytes().decode('latin-1', errors='ignore'), re.IGNORECASE)
+            for match in matches:
+                print(f"{Fore.GREEN}[!] FLAG in LSB data: {match}{Style.RESET_ALL}")
+                add_to_summary("LSB-FLAG", match)
+        
+        add_to_summary("LSB-EXTRACT", f"Saved to '{output_file.name}'")
+        
+    except Exception as e:
+        print(f"{Fore.RED}[LSB-EXTRACT] Failed: {e}{Style.RESET_ALL}")
+
 def color_remapping(filepath: Path):
     if not HAS_PIL:
         print(f"{Fore.RED}[!] Pillow not installed. Skipping color remapping.{Style.RESET_ALL}")
@@ -1961,6 +2224,14 @@ def process_file(filepath: Path, args):
         if is_image:
             analyze_image(repaired, deep=args.deep, alpha=args.alpha)
             analyze_graphicsmagick(repaired)
+            analyze_exif_deep(repaired)
+            analyze_steg_methods(repaired)
+            
+            if args.lsbextract or args.all:
+                extract_lsb_data(repaired)
+            
+            if args.compare:
+                compare_images(repaired, Path(args.compare))
             
             if is_png:
                 if args.lsb or args.all or args.auto:
@@ -2007,6 +2278,15 @@ def process_file(filepath: Path, args):
     else:
         if is_image:
             analyze_image(repaired, deep=args.deep, alpha=args.alpha)
+            
+            if args.exif:
+                analyze_exif_deep(repaired)
+            if args.stegdetect:
+                analyze_steg_methods(repaired)
+            if args.lsbextract:
+                extract_lsb_data(repaired)
+            if args.compare:
+                compare_images(repaired, Path(args.compare))
             
             if args.lsb:
                 analyze_zsteg(repaired)
@@ -2171,6 +2451,10 @@ def main():
     parser.add_argument("--disk", action="store_true", help="Analyze disk image for flags using strings")
     parser.add_argument("--windows", action="store_true", help="Analyze Windows Event Logs for forensic evidence")
     parser.add_argument("--quick", action="store_true", help="QUICK mode: Ultra-fast CTF analysis (strings + zsteg + basic tools + early exit)")
+    parser.add_argument("--exif", action="store_true", help="Deep EXIF analysis for hidden data")
+    parser.add_argument("--stegdetect", action="store_true", help="Detect steganography method used")
+    parser.add_argument("--compare", type=str, help="Compare two images (path to second image)")
+    parser.add_argument("--lsbextract", action="store_true", help="Extract raw LSB data from image")
     args = parser.parse_args()
 
     # Resolve input files
