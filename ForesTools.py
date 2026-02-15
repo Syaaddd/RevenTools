@@ -1023,6 +1023,276 @@ def reconstruct_streams(filepath: Path):
     except Exception as e:
         print(f"{Fore.RED}[PCAP] Stream reconstruction failed: {e}{Style.RESET_ALL}")
 
+def analyze_windows_event_logs(filepath: Path):
+    """Analyze Windows Event Logs (.evtx) for forensic evidence"""
+    print(f"{Fore.GREEN}[WINDOWS-EVENT] Analyzing Windows Event Logs...{Style.RESET_ALL}")
+    
+    flags_found = []
+    events_found = []
+    
+    try:
+        import xml.etree.ElementTree as ET
+        
+        output_dir = filepath.parent / f"{filepath.stem}_event_analysis"
+        output_dir.mkdir(exist_ok=True)
+        
+        result = subprocess.run(
+            ["powershell", "-Command", 
+             f"Get-WinEvent -Path '{filepath}' -Oldest | Select-Object -First 500 | ConvertTo-Xml -As String"],
+            capture_output=True, text=True, timeout=60
+        )
+        
+        if result.returncode != 0 or not result.stdout.strip():
+            result = subprocess.run(
+                ["powershell", "-Command", 
+                 f"$events = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new('{filepath}')"],
+                capture_output=True, text=True, timeout=30
+            )
+            print(f"{Fore.YELLOW}[WINDOWS-EVENT] Trying alternative parsing method...{Style.RESET_ALL}")
+            
+            import struct
+            with open(filepath, 'rb') as f:
+                raw_data = f.read()
+            
+            strings_data = ''.join(chr(b) if 32 <= b <= 126 else ' ' for b in raw_data)
+            
+            search_patterns = {
+                'Installation': r'(install|setup|software|msi|uninstall)',
+                'Execution': r'(execute|run|start|process|cmd|powershell)',
+                'Shutdown': r'(shutdown|stop|exit|terminate|power)',
+                'Logon': r'(logon|login|user|session|auth)',
+            }
+            
+            for category, pattern in search_patterns.items():
+                matches = re.findall(pattern, strings_data, re.IGNORECASE)
+                if matches:
+                    print(f"{Fore.CYAN}[+] Found {len(matches)} {category} related entries{Style.RESET_ALL}")
+                    events_found.append(f"{category}: {len(matches)} entries")
+                    add_to_summary(f"EVENT-{category.upper()}", f"{len(matches)} entries found")
+            
+            for pattern in COMMON_FLAG_PATTERNS:
+                flag_matches = re.findall(pattern, strings_data, re.IGNORECASE)
+                for match in flag_matches:
+                    if match not in flags_found:
+                        flags_found.append(match)
+                        print(f"{Fore.GREEN}[!] FLAG FOUND in Event Log: {match}{Style.RESET_ALL}")
+                        add_to_summary("EVENT-FLAG", match)
+            
+            return
+        
+        xml_output = result.stdout
+        
+        try:
+            root = ET.fromstring(xml_output)
+        except:
+            xml_output = strings_data = ''.join(chr(b) if 32 <= b <= 126 else ' ' for b in open(filepath, 'rb').read())
+            root = None
+        
+        if root is not None:
+            events = root.findall(".//Object")
+            
+            event_summary = {
+                'Info': [],
+                'Warning': [],
+                'Error': [],
+            }
+            
+            for event in events[:500]:
+                event_xml = ET.tostring(event, encoding='unicode')
+                
+                for pattern in COMMON_FLAG_PATTERNS:
+                    matches = re.findall(pattern, event_xml, re.IGNORECASE)
+                    for match in matches:
+                        if match not in flags_found:
+                            flags_found.append(match)
+                            print(f"{Fore.GREEN}[!] FLAG FOUND: {match}{Style.RESET_ALL}")
+                            add_to_summary("EVENT-FLAG", match)
+                
+                event_lower = event_xml.lower()
+                if 'install' in event_lower or 'setup' in event_lower or 'msi' in event_lower:
+                    event_summary['Info'].append(f"Installation event found")
+                if 'execute' in event_lower or 'run' in event_lower or 'cmd.exe' in event_lower:
+                    event_summary['Info'].append(f"Execution event found")
+                if 'shutdown' in event_lower or 'power off' in event_lower:
+                    event_summary['Error'].append(f"Shutdown event found")
+                if 'logon' in event_lower or 'login' in event_lower:
+                    event_summary['Info'].append(f"Logon event found")
+            
+            for level, events_list in event_summary.items():
+                unique_events = list(set(events_list))[:5]
+                if unique_events:
+                    print(f"{Fore.CYAN}[+] {level}: {len(unique_events)} unique event types{Style.RESET_ALL}")
+                    add_to_summary(f"EVENT-{level.upper()}", f"{len(unique_events)} event types")
+        
+        else:
+            for pattern in COMMON_FLAG_PATTERNS:
+                matches = re.findall(pattern, xml_output, re.IGNORECASE)
+                for match in matches:
+                    if match not in flags_found:
+                        flags_found.append(match)
+                        print(f"{Fore.GREEN}[!] FLAG FOUND: {match}{Style.RESET_ALL}")
+                        add_to_summary("EVENT-FLAG", match)
+            
+            lines = xml_output.split('\n')
+            for line in lines:
+                line_lower = line.lower()
+                if 'install' in line_lower or 'setup' in line_lower:
+                    print(f"{Fore.CYAN}[+] Installation related: {line[:80]}...{Style.RESET_ALL}")
+                    events_found.append("Installation event found")
+                    break
+            
+            for line in lines:
+                line_lower = line.lower()
+                if 'execute' in line_lower or 'run' in line_lower or 'cmd' in line_lower:
+                    print(f"{Fore.CYAN}[+] Execution related: {line[:80]}...{Style.RESET_ALL}")
+                    events_found.append("Execution event found")
+                    break
+            
+            for line in lines:
+                line_lower = line.lower()
+                if 'shutdown' in line_lower or 'power' in line_lower:
+                    print(f"{Fore.RED}[!] Shutdown related: {line[:80]}...{Style.RESET_ALL}")
+                    events_found.append("Shutdown event found")
+                    break
+        
+        summary_file = output_dir / "event_analysis.txt"
+        with open(summary_file, 'w') as f:
+            f.write("Windows Event Log Analysis\n")
+            f.write("="*50 + "\n\n")
+            f.write(f"Source: {filepath.name}\n\n")
+            f.write("Events Found:\n")
+            for event in events_found:
+                f.write(f"  - {event}\n")
+            f.write(f"\nFlags Found: {len(flags_found)}\n")
+            for flag in flags_found:
+                f.write(f"  - {flag}\n")
+        
+        add_to_summary("EVENT-ANALYSIS", f"Results saved to '{summary_file.name}'")
+        
+        if not flags_found:
+            print(f"{Fore.YELLOW}[WINDOWS-EVENT] No flags found in event log.{Style.RESET_ALL}")
+            
+    except subprocess.TimeoutExpired:
+        print(f"{Fore.RED}[WINDOWS-EVENT] Timeout parsing event log.{Style.RESET_ALL}")
+    except Exception as e:
+        print(f"{Fore.RED}[WINDOWS-EVENT] Analysis failed: {e}{Style.RESET_ALL}")
+
+def parse_raw_event_log(filepath: Path):
+    """Parse raw event log file for flags and artifacts"""
+    print(f"{Fore.GREEN}[RAW-EVENT] Parsing raw event log data...{Style.RESET_ALL}")
+    
+    flags_found = []
+    
+    try:
+        with open(filepath, 'rb') as f:
+            raw_data = f.read()
+        
+        strings_data = ''.join(chr(b) if 32 <= b <= 126 else '\n' for b in raw_data)
+        
+        print(f"{Fore.CYAN}[+] Searching for installation evidence...{Style.RESET_ALL}")
+        install_patterns = [
+            r'MSI.*install',
+            r'Software.*Install',
+            r'Installation',
+            r'\.exe.*installed',
+            r'program.*files',
+        ]
+        
+        for pattern in install_patterns:
+            matches = re.findall(pattern, strings_data, re.IGNORECASE)
+            if matches:
+                print(f"  Found: {len(matches)} matches for '{pattern}'")
+                add_to_summary("INSTALL-EVIDENCE", f"{pattern}: {len(matches)} matches")
+        
+        print(f"{Fore.CYAN}[+] Searching for execution evidence...{Style.RESET_ALL}")
+        exec_patterns = [
+            r'cmd\.exe',
+            r'powershell\.exe',
+            r'Process.*Start',
+            r'CreatedProcess',
+            r'New Process',
+        ]
+        
+        for pattern in exec_patterns:
+            matches = re.findall(pattern, strings_data, re.IGNORECASE)
+            if matches:
+                print(f"  Found: {len(matches)} matches for '{pattern}'")
+                add_to_summary("EXEC-EVIDENCE", f"{pattern}: {len(matches)} matches")
+        
+        print(f"{Fore.CYAN}[+] Searching for shutdown/reboot evidence...{Style.RESET_ALL}")
+        shutdown_patterns = [
+            r'Shutdown',
+            r'System.*Power',
+            r'PowerOff',
+            r'BSOD',
+            r'Crash',
+            r'EventID.*6008',
+            r'EventID.*1074',
+        ]
+        
+        for pattern in shutdown_patterns:
+            matches = re.findall(pattern, strings_data, re.IGNORECASE)
+            if matches:
+                print(f"  Found: {len(matches)} matches for '{pattern}'")
+                add_to_summary("SHUTDOWN-EVIDENCE", f"{pattern}: {len(matches)} matches")
+        
+        print(f"{Fore.CYAN}[+] Searching for logon events...{Style.RESET_ALL}")
+        logon_patterns = [
+            r'Logon',
+            r'LogonType',
+            r'EventID.*4624',
+            r'EventID.*4625',
+            r'Session.*Connect',
+        ]
+        
+        for pattern in logon_patterns:
+            matches = re.findall(pattern, strings_data, re.IGNORECASE)
+            if matches:
+                print(f"  Found: {len(matches)} matches for '{pattern}'")
+                add_to_summary("LOGON-EVIDENCE", f"{pattern}: {len(matches)} matches")
+        
+        print(f"{Fore.GREEN}[+] Searching for flags...{Style.RESET_ALL}")
+        for pattern in COMMON_FLAG_PATTERNS:
+            matches = re.findall(pattern, strings_data, re.IGNORECASE)
+            for match in matches:
+                if match not in flags_found:
+                    flags_found.append(match)
+                    print(f"{Fore.GREEN}[!] FLAG FOUND: {match}{Style.RESET_ALL}")
+                    add_to_summary("EVENT-FLAG", match)
+        
+        if not flags_found:
+            b64_matches = re.findall(r'[A-Za-z0-9+/]{20,}={0,2}', strings_data)
+            for b64 in b64_matches[:10]:
+                decoded = decode_base64(b64)
+                if decoded:
+                    print(f"{Fore.CYAN}[+] Base64 decoded: {decoded[:50]}...{Style.RESET_ALL}")
+                    collect_base64_from_text(decoded)
+                    for pattern in COMMON_FLAG_PATTERNS:
+                        flag_matches = re.findall(pattern, decoded, re.IGNORECASE)
+                        for match in flag_matches:
+                            if match not in flags_found:
+                                flags_found.append(match)
+                                print(f"{Fore.GREEN}[!] FLAG from base64: {match}{Style.RESET_ALL}")
+                                add_to_summary("EVENT-B64-FLAG", match)
+        
+        output_dir = filepath.parent / f"{filepath.stem}_event_analysis"
+        output_dir.mkdir(exist_ok=True)
+        summary_file = output_dir / "event_evidence.txt"
+        
+        with open(summary_file, 'w') as f:
+            f.write("Event Log Evidence Summary\n")
+            f.write("="*50 + "\n\n")
+            f.write(f"File: {filepath.name}\n")
+            f.write(f"Size: {len(raw_data)} bytes\n\n")
+            f.write("Analysis:\n")
+            for item in flag_summary[-20:]:
+                f.write(f"  {item}\n")
+        
+        add_to_summary("EVENT-ANALYSIS", f"Evidence saved to '{summary_file.name}'")
+        
+    except Exception as e:
+        print(f"{Fore.RED}[RAW-EVENT] Failed: {e}{Style.RESET_ALL}")
+
 def check_unusual_ports(filepath: Path):
     if not AVAILABLE_TOOLS.get('tshark', False):
         return
@@ -1589,6 +1859,7 @@ def process_file(filepath: Path, args):
     is_jpg = "jpeg" in file_desc or "jpg" in file_desc
     is_pcap = "pcap" in file_desc or "capture" in file_desc or repaired.suffix.lower() in ['.pcap', '.pcapng', '.cap']
     is_disk = repaired.suffix.lower() in ['.dd', '.img', '.raw', '.iso', '.vmdk', '.qcow2', '.vhd'] or args.disk
+    is_eventlog = repaired.suffix.lower() in ['.evtx', '.evt'] or args.windows
     
     # Check if it's a compressed disk image (e.g., .crdownload, .gz containing .dd)
     is_compressed_disk = False
@@ -1655,6 +1926,10 @@ def process_file(filepath: Path, args):
         
         if is_disk or args.disk:
             analyze_disk_image(repaired)
+        
+        if is_eventlog or args.windows:
+            analyze_windows_event_logs(repaired)
+            parse_raw_event_log(repaired)
     
     else:
         if is_image:
@@ -1693,6 +1968,10 @@ def process_file(filepath: Path, args):
         
         elif is_disk or args.disk:
             analyze_disk_image(repaired)
+        
+        elif is_eventlog or args.windows:
+            analyze_windows_event_logs(repaired)
+            parse_raw_event_log(repaired)
 
     # Generate detailed final report
     print_final_report(filepath.name)
@@ -1816,6 +2095,7 @@ def main():
     parser.add_argument("--extract", action="store_true", help="Extract embedded files from encoded text")
     parser.add_argument("--pcap", action="store_true", help="Full PCAP network analysis with attack detection")
     parser.add_argument("--disk", action="store_true", help="Analyze disk image for flags using strings")
+    parser.add_argument("--windows", action="store_true", help="Analyze Windows Event Logs for forensic evidence")
     args = parser.parse_args()
 
     # Resolve input files
