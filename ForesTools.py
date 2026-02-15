@@ -1533,7 +1533,7 @@ def analyze_disk_image(filepath: Path):
     except Exception as e:
         print(f"{Fore.RED}[DISK] Analysis failed: {e}{Style.RESET_ALL}")
 
-def analyze_pcap_full(filepath: Path, phantom_mode: bool = False):
+def analyze_pcap_full(filepath: Path):
     print(f"{Fore.BLUE}{'='*60}")
     print(f"PCAP ANALYSIS: {filepath.name}")
     print(f"{'='*60}{Style.RESET_ALL}")
@@ -1543,16 +1543,15 @@ def analyze_pcap_full(filepath: Path, phantom_mode: bool = False):
     extract_dns_queries(filepath)
     extract_credentials(filepath)
     
-    # Ph4nt0m 1ntrud3r - Advanced Analysis
-    if phantom_mode:
-        print(f"\n{Fore.MAGENTA}{'='*60}")
-        print(f"🕵️ PH4NT0M 1NTRUD3R ANALYSIS MODE")
-        print(f"{'='*60}{Style.RESET_ALL}")
-        
-        analyze_pcap_timeline(filepath)
-        detect_attack_patterns(filepath)
-        analyze_post_data(filepath)
-        find_data_exfiltration(filepath)
+    # Advanced Attack Analysis (for intrusion detection challenges)
+    print(f"\n{Fore.MAGENTA}{'='*60}")
+    print(f"🔍 ADVANCED ATTACK ANALYSIS")
+    print(f"{'='*60}{Style.RESET_ALL}")
+    
+    analyze_pcap_timeline(filepath)
+    detect_attack_patterns(filepath)
+    analyze_post_data(filepath)
+    find_data_exfiltration(filepath)
     search_pcap_flags(filepath)
     reconstruct_streams(filepath)
     check_unusual_ports(filepath)
@@ -1604,7 +1603,7 @@ def process_file(filepath: Path, args):
         repaired = extract_compressed_disk(repaired)
 
     if args.pcap and is_pcap:
-        analyze_pcap_full(repaired, phantom_mode=args.phantom)
+        analyze_pcap_full(repaired)
         print_final_report(filepath.name)
         return {
             'flags': [item for item in flag_summary if "-FLAG" in item or "FLAG-" in item],
@@ -1815,8 +1814,7 @@ def main():
     parser.add_argument("--deep", action="store_true", help="Deep analysis (all bit planes 0-7)")
     parser.add_argument("--decode", action="store_true", help="Auto-detect and decode encoded data (base64, hex, binary)")
     parser.add_argument("--extract", action="store_true", help="Extract embedded files from encoded text")
-    parser.add_argument("--pcap", action="store_true", help="Full PCAP network analysis")
-    parser.add_argument("--phantom", action="store_true", help="Ph4nt0m 1ntrud3r mode - Advanced PCAP attack analysis")
+    parser.add_argument("--pcap", action="store_true", help="Full PCAP network analysis with attack detection")
     parser.add_argument("--disk", action="store_true", help="Analyze disk image for flags using strings")
     args = parser.parse_args()
 

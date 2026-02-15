@@ -3,7 +3,7 @@
 > **Smart Forensic Toolkit for CTF Challenges** 🔐  
 > Alat otomatis untuk analisis file CTF — steganografi, header repair, ekstraksi tersembunyi, network forensics, disk forensics, dan deteksi flag 🚩
 
-**Versi: v2.4** — Mendukung steganography tools, network forensics (PCAP) 🌐, Ph4nt0m 1ntrud3r mode 🕵️, disk forensics 💾, dan auto-decode 🔄
+**Versi: v2.4** — Mendukung steganography tools, network forensics (PCAP) 🌐 dengan attack detection, disk forensics 💾, dan auto-decode 🔄
 
 ---
 
@@ -108,15 +108,17 @@ fores secret.txt --extract    # Ekstrak semua file tersembunyi 📦
 
 ### 🌐 Network Forensics (PCAP)
 ```bash
-fores capture.pcap --pcap              # Analisis full PCAP 📡
-fores capture.pcap --pcap --phantom    # Ph4nt0m 1ntrud3r mode - Advanced attack analysis 🕵️
+fores capture.pcap --pcap     # Analisis full PCAP dengan attack detection 📡
 ```
 
-**Ph4nt0m 1ntrud3r Mode** (`--phantom`) mendeteksi:
-- **Timeline Analysis** - Melacak serangan berdasarkan waktu ⏱️
+**PCAP Analysis** secara otomatis mendeteksi:
+- **Timeline Analysis** - Melacak HTTP requests berdasarkan waktu ⏱️
 - **Attack Patterns** - SQL Injection, XSS, LFI/RFI, Command Injection ⚔️
 - **POST Data Analysis** - Mencari flag dan credentials dalam POST requests 📤
 - **Data Exfiltration** - Mendeteksi data yang dicuri attacker 📥
+- **HTTP Objects** - Ekstrak file dari traffic 📦
+- **DNS Queries** - Analisis query mencurigakan 🌐
+- **Credentials** - Mencari login/password 🔑
 
 ### 💾 Disk Image Analysis (FAST MODE)
 ```bash
@@ -166,8 +168,7 @@ fores file.png --bruteforce
 
 # Auto-decode & network 🔄🌐
 fores logs.txt --decode
-fores capture.pcap --pcap
-fores capture.pcap --pcap --phantom  # Advanced attack analysis 🕵️
+fores capture.pcap --pcap     # Dengan attack detection otomatis
 
 # Disk forensics 💾
 fores disk.img --disk
@@ -183,8 +184,7 @@ fores file.png --all
 - ✅ Gunakan `--auto` untuk analisis cepat tanpa memilih tools satu per satu 🤖
 - ⚠️ Tools yang tidak terinstall akan otomatis dilewati — tidak perlu khawatir! 😌
 - 🔎 Periksa folder `*_bitplanes/` dan `*_channels/` jika flag tidak ditemukan otomatis 👀
-- 🌐 Untuk file `.pcap`, gunakan `--pcap` untuk ekstrak HTTP objects, DNS queries, dan credentials 🔓
-- 🕵️ Gunakan `--pcap --phantom` untuk analisis serangan lanjutan (timeline, attack patterns, data exfiltration) - cocok untuk soal CTF tipe "Ph4nt0m 1ntrud3r"!
+- 🌐 Untuk file `.pcap`, gunakan `--pcap` untuk analisis lengkap termasuk ekstrak HTTP objects, DNS queries, credentials, dan deteksi attack patterns (SQLi, XSS, LFI, dll.) 🔓
 - 💾 Untuk disk image (`.img`, `.dd`, `.raw`), gunakan `--disk` untuk mencari flag dengan strings dan ekstrak file tersembunyi (sekarang 3-5x lebih cepat!) 🕵️⚡
 - 🧪 Cobalah `--remap` pada gambar dengan noise tinggi — sering menyembunyikan flag di palette warna! 🌈
 - ⚡ Analisis disk image sekarang menggunakan FAST MODE: scan 10MB pertama saja, string min. 8 karakter, dan limit hasil untuk kecepatan maksimal 🚀
