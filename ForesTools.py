@@ -1056,6 +1056,242 @@ def check_unusual_ports(filepath: Path):
     except Exception as e:
         print(f"{Fore.YELLOW}[PCAP] Port analysis failed: {e}{Style.RESET_ALL}")
 
+# ============================================================
+# PH4NT0M 1NTRUD3R - Advanced PCAP Analysis for CTF Challenges
+# ============================================================
+
+def analyze_pcap_timeline(filepath: Path):
+    """Analyze PCAP timeline to track attacks chronologically"""
+    if not AVAILABLE_TOOLS.get('tshark', False):
+        return
+    
+    print(f"{Fore.GREEN}[PCAP-TIMELINE] Analyzing attack timeline...{Style.RESET_ALL}")
+    
+    try:
+        # Get all HTTP requests with timestamps
+        result = subprocess.run(
+            ["tshark", "-r", str(filepath), "-T", "fields", 
+             "-e", "frame.time", "-e", "http.request.uri", 
+             "-e", "http.request.method", "-e", "ip.src",
+             "-Y", "http.request", "-q"],
+            capture_output=True, text=True, timeout=60
+        )
+        
+        if result.stdout.strip():
+            print(f"{Fore.CYAN}[+] HTTP Request Timeline:{Style.RESET_ALL}")
+            lines = result.stdout.strip().split('\n')
+            for i, line in enumerate(lines[:20], 1):  # Show first 20
+                parts = line.split('\t')
+                if len(parts) >= 3:
+                    time_str = parts[0][:30] if len(parts[0]) > 30 else parts[0]
+                    method = parts[2] if len(parts) > 2 else "GET"
+                    uri = parts[1][:60] if len(parts[1]) > 60 else parts[1]
+                    print(f"  [{i}] {time_str} | {method} {uri}")
+            
+            add_to_summary("PCAP-TIMELINE", f"{len(lines)} HTTP requests tracked")
+            
+            # Save timeline
+            timeline_file = filepath.parent / f"{filepath.stem}_timeline.txt"
+            with open(timeline_file, 'w') as f:
+                f.write("Attack Timeline Analysis\n")
+                f.write("="*60 + "\n\n")
+                for line in lines:
+                    f.write(line + "\n")
+            
+            print(f"{Fore.CYAN}[+] Timeline saved to: {timeline_file.name}{Style.RESET_ALL}")
+            
+    except Exception as e:
+        print(f"{Fore.YELLOW}[PCAP-TIMELINE] Failed: {e}{Style.RESET_ALL}")
+
+def detect_attack_patterns(filepath: Path):
+    """Detect common attack patterns in PCAP"""
+    if not AVAILABLE_TOOLS.get('tshark', False):
+        return
+    
+    print(f"{Fore.GREEN}[PCAP-ATTACK] Detecting attack patterns...{Style.RESET_ALL}")
+    
+    # Attack patterns to detect
+    attack_signatures = {
+        'SQL Injection': r"(\bunion\b|\bselect\b|\binsert\b|\bdelete\b|\bdrop\b|%27|')",
+        'XSS': r"(<script|javascript:|onerror=|onload=|alert\()",
+        'LFI/RFI': r"(\.\.\/|\.\.\\|%2e%2e%2f|file:\/\/)",
+        'Command Injection': r"(;|\||&&|\$\(|`)\s*(cat|ls|pwd|whoami|id)",
+        'Directory Traversal': r"(\.\.\/){2,}",
+        'Path Traversal': r"(%2e%2e%2f|%2e%2e%5c){1,}",
+    }
+    
+    attacks_found = []
+    
+    try:
+        # Get HTTP data
+        result = subprocess.run(
+            ["tshark", "-r", str(filepath), "-T", "fields",
+             "-e", "http.request.uri", "-e", "http.request.method",
+             "-e", "frame.time", "-Y", "http", "-q"],
+            capture_output=True, text=True, timeout=60
+        )
+        
+        http_data = result.stdout
+        
+        # Check for each attack pattern
+        for attack_type, pattern in attack_signatures.items():
+            matches = re.findall(pattern, http_data, re.IGNORECASE)
+            if matches:
+                count = len(matches)
+                print(f"{Fore.RED}[!] {attack_type} detected: {count} occurrences{Style.RESET_ALL}")
+                attacks_found.append((attack_type, count))
+                add_to_summary("PCAP-ATTACK", f"{attack_type}: {count} hits")
+        
+        # Look for suspicious HTTP methods or paths
+        suspicious_patterns = [
+            (r"\/admin", "Admin panel access"),
+            (r"\/wp-login", "WordPress login attempt"),
+            (r"\/phpmyadmin", "phpMyAdmin access"),
+            (r"\b(cmd|command|exec|eval)\b", "Command execution attempt"),
+        ]
+        
+        for pattern, description in suspicious_patterns:
+            matches = re.findall(pattern, http_data, re.IGNORECASE)
+            if matches:
+                print(f"{Fore.YELLOW}[!] {description}: {len(matches)} occurrences{Style.RESET_ALL}")
+                add_to_summary("PCAP-SUSPICIOUS", f"{description}: {len(matches)}")
+        
+        if not attacks_found:
+            print(f"{Fore.CYAN}[+] No obvious attack patterns detected{Style.RESET_ALL}")
+            
+    except Exception as e:
+        print(f"{Fore.YELLOW}[PCAP-ATTACK] Failed: {e}{Style.RESET_ALL}")
+
+def analyze_post_data(filepath: Path):
+    """Analyze POST request data for flags and credentials"""
+    if not AVAILABLE_TOOLS.get('tshark', False):
+        return
+    
+    print(f"{Fore.GREEN}[PCAP-POST] Analyzing POST data...{Style.RESET_ALL}")
+    
+    try:
+        # Extract POST data
+        result = subprocess.run(
+            ["tshark", "-r", str(filepath), "-T", "fields",
+             "-e", "http.request.method", "-e", "http.request.uri",
+             "-e", "http.file_data", "-Y", "http.request.method == \"POST\"", "-q"],
+            capture_output=True, text=True, timeout=60
+        )
+        
+        post_data = result.stdout
+        
+        if post_data.strip():
+            print(f"{Fore.CYAN}[+] POST requests found:{Style.RESET_ALL}")
+            
+            # Search for flags in POST data
+            for pattern in COMMON_FLAG_PATTERNS:
+                matches = re.findall(pattern, post_data, re.IGNORECASE)
+                for match in matches:
+                    print(f"{Fore.GREEN}[!] FLAG in POST data: {match}{Style.RESET_ALL}")
+                    add_to_summary("PCAP-POST-FLAG", match)
+            
+            # Look for credentials
+            cred_patterns = [
+                r"(username|user|login)=[^&\s]{3,}",
+                r"(password|pass|pwd)=[^&\s]{3,}",
+                r"email=[^&\s]+@[^&\s]+",
+            ]
+            
+            for pattern in cred_patterns:
+                matches = re.findall(pattern, post_data, re.IGNORECASE)
+                if matches:
+                    print(f"{Fore.YELLOW}[!] Credentials found in POST data{Style.RESET_ALL}")
+                    for match in matches[:5]:
+                        print(f"    {match[:80]}")
+                    add_to_summary("PCAP-CREDENTIALS", f"Found {len(matches)} credential patterns")
+                    break
+            
+            # Check for data exfiltration (large POSTs)
+            lines = post_data.split('\n')
+            for line in lines:
+                parts = line.split('\t')
+                if len(parts) >= 3 and len(parts[2]) > 100:
+                    print(f"{Fore.CYAN}[+] Large POST detected ({len(parts[2])} bytes) to: {parts[1]}{Style.RESET_ALL}")
+                    
+                    # Try to decode base64 in large POSTs
+                    b64_pattern = r'[A-Za-z0-9+/]{40,}={0,2}'
+                    b64_matches = re.findall(b64_pattern, parts[2])
+                    for b64 in b64_matches[:3]:
+                        try:
+                            decoded = base64.b64decode(b64).decode('utf-8', errors='ignore')
+                            if len(decoded) > 10 and any(c.isprintable() for c in decoded):
+                                print(f"{Fore.GREEN}[+] Base64 decoded from POST: {decoded[:100]}{Style.RESET_ALL}")
+                                add_to_summary("PCAP-POST-DATA", f"Base64: {decoded[:50]}")
+                        except:
+                            pass
+        else:
+            print(f"{Fore.CYAN}[+] No POST data found{Style.RESET_ALL}")
+            
+    except Exception as e:
+        print(f"{Fore.YELLOW}[PCAP-POST] Failed: {e}{Style.RESET_ALL}")
+
+def find_data_exfiltration(filepath: Path):
+    """Detect potential data exfiltration patterns"""
+    if not AVAILABLE_TOOLS.get('tshark', False):
+        return
+    
+    print(f"{Fore.GREEN}[PCAP-EXFIL] Searching for data exfiltration...{Style.RESET_ALL}")
+    
+    try:
+        # Check for large outbound transfers
+        result = subprocess.run(
+            ["tshark", "-r", str(filepath), "-T", "fields",
+             "-e", "frame.len", "-e", "ip.src", "-e", "ip.dst",
+             "-e", "frame.time", "-Y", "tcp", "-q"],
+            capture_output=True, text=True, timeout=60
+        )
+        
+        # Find large packets
+        large_packets = []
+        for line in result.stdout.strip().split('\n')[:1000]:  # Check first 1000
+            parts = line.split('\t')
+            if len(parts) >= 4:
+                try:
+                    pkt_len = int(parts[0])
+                    if pkt_len > 5000:  # Large packets
+                        large_packets.append((pkt_len, parts[1], parts[2], parts[3]))
+                except:
+                    pass
+        
+        if large_packets:
+            print(f"{Fore.CYAN}[+] Large data transfers detected:{Style.RESET_ALL}")
+            # Sort by size
+            large_packets.sort(reverse=True)
+            for size, src, dst, time in large_packets[:10]:
+                print(f"  {size} bytes: {src} -> {dst}")
+            add_to_summary("PCAP-EXFIL", f"{len(large_packets)} large transfers detected")
+        
+        # Check for encoded data in requests
+        result = subprocess.run(
+            ["tshark", "-r", str(filepath), "-T", "fields",
+             "-e", "http.request.uri", "-Y", "http", "-q"],
+            capture_output=True, text=True, timeout=60
+        )
+        
+        # Look for encoded/encrypted data in URIs
+        encoded_patterns = [
+            r"data=[A-Za-z0-9+/]{50,}",
+            r"file=[A-Za-z0-9+/]{50,}",
+            r"content=[A-Za-z0-9+/]{50,}",
+        ]
+        
+        for pattern in encoded_patterns:
+            matches = re.findall(pattern, result.stdout)
+            if matches:
+                print(f"{Fore.RED}[!] Possible data exfiltration in URI parameters{Style.RESET_ALL}")
+                for match in matches[:3]:
+                    print(f"    {match[:80]}")
+                add_to_summary("PCAP-EXFIL", f"Encoded data in URI: {len(matches)} matches")
+                break
+                
+    except Exception as e:
+        print(f"{Fore.YELLOW}[PCAP-EXFIL] Failed: {e}{Style.RESET_ALL}")
+
 def extract_compressed_disk(filepath: Path) -> Path:
     """Extract compressed disk image (GZIP, ZIP, etc.) and return extracted file path"""
     print(f"{Fore.CYAN}[DISK] Detected compressed file, extracting...{Style.RESET_ALL}")
@@ -1297,7 +1533,7 @@ def analyze_disk_image(filepath: Path):
     except Exception as e:
         print(f"{Fore.RED}[DISK] Analysis failed: {e}{Style.RESET_ALL}")
 
-def analyze_pcap_full(filepath: Path):
+def analyze_pcap_full(filepath: Path, phantom_mode: bool = False):
     print(f"{Fore.BLUE}{'='*60}")
     print(f"PCAP ANALYSIS: {filepath.name}")
     print(f"{'='*60}{Style.RESET_ALL}")
@@ -1306,6 +1542,17 @@ def analyze_pcap_full(filepath: Path):
     extract_http_objects(filepath)
     extract_dns_queries(filepath)
     extract_credentials(filepath)
+    
+    # Ph4nt0m 1ntrud3r - Advanced Analysis
+    if phantom_mode:
+        print(f"\n{Fore.MAGENTA}{'='*60}")
+        print(f"🕵️ PH4NT0M 1NTRUD3R ANALYSIS MODE")
+        print(f"{'='*60}{Style.RESET_ALL}")
+        
+        analyze_pcap_timeline(filepath)
+        detect_attack_patterns(filepath)
+        analyze_post_data(filepath)
+        find_data_exfiltration(filepath)
     search_pcap_flags(filepath)
     reconstruct_streams(filepath)
     check_unusual_ports(filepath)
@@ -1357,7 +1604,7 @@ def process_file(filepath: Path, args):
         repaired = extract_compressed_disk(repaired)
 
     if args.pcap and is_pcap:
-        analyze_pcap_full(repaired)
+        analyze_pcap_full(repaired, phantom_mode=args.phantom)
         print_final_report(filepath.name)
         return {
             'flags': [item for item in flag_summary if "-FLAG" in item or "FLAG-" in item],
@@ -1569,6 +1816,7 @@ def main():
     parser.add_argument("--decode", action="store_true", help="Auto-detect and decode encoded data (base64, hex, binary)")
     parser.add_argument("--extract", action="store_true", help="Extract embedded files from encoded text")
     parser.add_argument("--pcap", action="store_true", help="Full PCAP network analysis")
+    parser.add_argument("--phantom", action="store_true", help="Ph4nt0m 1ntrud3r mode - Advanced PCAP attack analysis")
     parser.add_argument("--disk", action="store_true", help="Analyze disk image for flags using strings")
     args = parser.parse_args()
 
