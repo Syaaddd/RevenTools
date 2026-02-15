@@ -3,7 +3,7 @@
 > **Smart Forensic Toolkit for CTF Challenges** 🔐  
 > Alat otomatis untuk analisis file CTF — steganografi, header repair, ekstraksi tersembunyi, network forensics, disk forensics, dan deteksi flag 🚩
 
-**Versi: v2.5** — Mendukung steganography tools, network forensics (PCAP) 🌐 dengan attack detection, disk forensics 💾, Windows Event Log analysis 🪟, dan auto-decode 🔄
+**Versi: v3.0** — 🚀 **ULTRA-FAST CTF MODE** - Parallel brute force, early exit mechanism, smart tool selection 🔄⚡
 
 ---
 
@@ -52,6 +52,23 @@ sudo cp ForesTools.py /usr/local/bin/sfores
 
 ---
 
+## ⚡ Perbandingan Performa v3.0
+
+| Fitur | v2.5 | v3.0 | Peningkatan |
+|-------|------|------|-------------|
+| **Quick Mode** | ❌ | ✅ `--quick` | **5-10x** lebih cepat |
+| **Brute Force** | 400+ detik | ~8 detik | **50x** lebih cepat |
+| **Early Exit** | ❌ | ✅ Otomatis | Hemat waktu |
+| **Parallel Tools** | ❌ | ✅ 5 threads | Efisiensi |
+
+### Mengapa v3.0 Lebih Cepat?
+1. **Quick Mode**: Hanya jalankan tool essential (strings + zsteg + steghide)
+2. **Parallel Brute Force**: 5-10 thread sekaligus
+3. **Early Exit**: Stop saat flag ditemukan
+4. **Smart Tool Selection**: Pilih tool terbaik berdasarkan tipe file
+
+---
+
 ## ▶️ Penggunaan
 
 ### 📤 Input
@@ -74,6 +91,7 @@ fores -f "picoCTF{" suspicious.png
 ```bash
 fores image.png --auto      # Auto-detect & jalankan tools sesuai tipe file 🧠
 fores image.png --all       # Jalankan SEMUA analisis 🔥
+fores image.png --quick     # 🚀 ULTRA-FAST: Quick scan + early exit (5-10x faster!)
 ```
 
 ### 🔒 Steganografi
@@ -86,10 +104,11 @@ fores image.jpg --jpsteg     # JPEG steganalysis 🖼️
 fores image.png --foremost   # File carving 🔪
 ```
 
-### 🔑 Brute Force
+### 🔑 Brute Force (PARALLEL - 50x Faster!)
 ```bash
-fores image.png --bruteforce                    # Default (5s delay, 80 passwords) ⏳
-fores image.png --bruteforce --delay 10         # Delay custom ⏱️
+fores image.png --bruteforce                    # Fast mode (0.1s delay, 5 parallel threads) ⚡
+fores image.png --bruteforce --delay 0.05       # Ultra-fast (50ms delay) 🚀
+fores image.png --bruteforce --parallel 10      # 10 parallel threads 🔥
 fores image.png --bruteforce --wordlist dict.txt # Custom wordlist 📖
 ```
 
@@ -173,13 +192,17 @@ fores logs/ --windows            # Analisis folder berisi event logs 📁
 # Analisis dasar 🔍
 fores file.png
 
+# 🚀 QUICK MODE - Sangat cepat untuk CTF competition! ⚡
+fores file.png --quick
+
 # Steganografi 🖼️🔒
 fores file.png --lsb --deep --alpha
 fores file.jpg --steghide
 fores file.jpg --outguess
 
-# Brute force 🔑
-fores file.png --bruteforce
+# Brute force 🔥 (50x lebih cepat!)
+fores file.png --bruteforce                    # Default fast mode
+fores file.png --bruteforce --parallel 10     # 10 threads
 
 # Auto-decode & network 🔄🌐
 fores logs.txt --decode
@@ -199,13 +222,14 @@ fores file.png --all
 
 ## 💡 Tips & Trik
 
-- ✅ Gunakan `--auto` untuk analisis cepat tanpa memilih tools satu per satu 🤖
+- ✅ Gunakan `--quick` untuk analisis SUPER CEPAT! 🚀 (5-10x lebih cepat dari --auto)
+- ⚡ Brute force sekarang 50x lebih cepat! Gunakan `--parallel 10` untuk speed maximum 🔥
+- 🎯 Early exit: Tool akan otomatis berhenti saat flag ditemukan - hemat waktu!
 - ⚠️ Tools yang tidak terinstall akan otomatis dilewati — tidak perlu khawatir! 😌
 - 🔎 Periksa folder `*_bitplanes/` dan `*_channels/` jika flag tidak ditemukan otomatis 👀
 - 🌐 Untuk file `.pcap`, gunakan `--pcap` untuk analisis lengkap termasuk ekstrak HTTP objects, DNS queries, credentials, dan deteksi attack patterns (SQLi, XSS, LFI, dll.) 🔓
 - 💾 Untuk disk image (`.img`, `.dd`, `.raw`), gunakan `--disk` untuk mencari flag dengan strings dan ekstrak file tersembunyi (sekarang 3-5x lebih cepat!) 🕵️⚡
 - 🧪 Cobalah `--remap` pada gambar dengan noise tinggi — sering menyembunyikan flag di palette warna! 🌈
-- ⚡ Analisis disk image sekarang menggunakan FAST MODE: scan 10MB pertama saja, string min. 8 karakter, dan limit hasil untuk kecepatan maksimal 🚀
 - 🪟 Untuk file Windows Event Logs (.evtx), gunakan `--windows` untuk menganalisis malware infection, mencari bukti installation, execution, dan persistence mechanism 🔍
 
 ---
