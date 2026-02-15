@@ -1048,6 +1048,146 @@ def check_unusual_ports(filepath: Path):
     except Exception as e:
         print(f"{Fore.YELLOW}[PCAP] Port analysis failed: {e}{Style.RESET_ALL}")
 
+def analyze_disk_image(filepath: Path):
+    """Analyze disk image using strings to find flags (for DISKO CTF challenges)"""
+    print(f"{Fore.GREEN}[DISK] Analyzing disk image for hidden flags...{Style.RESET_ALL}")
+    
+    output_dir = filepath.parent / f"{filepath.stem}_disk_analysis"
+    output_dir.mkdir(exist_ok=True)
+    
+    flags_found = []
+    
+    try:
+        # Run strings with different encodings
+        print(f"{Fore.CYAN}[DISK] Extracting ASCII strings...{Style.RESET_ALL}")
+        result_ascii = subprocess.run(
+            ["strings", "-n", "4", str(filepath)],
+            capture_output=True, text=True, timeout=120
+        )
+        ascii_strings = result_ascii.stdout
+        
+        print(f"{Fore.CYAN}[DISK] Extracting Unicode strings...{Style.RESET_ALL}")
+        result_unicode = subprocess.run(
+            ["strings", "-e", "l", "-n", "4", str(filepath)],
+            capture_output=True, text=True, timeout=120
+        )
+        unicode_strings = result_unicode.stdout
+        
+        # Combine all strings
+        all_strings = ascii_strings + "\n" + unicode_strings
+        
+        # Save strings to file for analysis
+        strings_file = output_dir / "extracted_strings.txt"
+        with open(strings_file, 'w', encoding='utf-8', errors='ignore') as f:
+            f.write(all_strings)
+        print(f"{Fore.CYAN}[+] Strings saved to: {strings_file.name}{Style.RESET_ALL}")
+        
+        # Search for common flag patterns
+        print(f"{Fore.GREEN}[DISK] Searching for flags in strings...{Style.RESET_ALL}")
+        for pattern in COMMON_FLAG_PATTERNS:
+            matches = re.findall(pattern, all_strings, re.IGNORECASE)
+            for match in matches:
+                if match not in flags_found:
+                    flags_found.append(match)
+                    print(f"{Fore.GREEN}[!] FLAG FOUND: {match}{Style.RESET_ALL}")
+                    add_to_summary("DISK-FLAG", match)
+        
+        # Search for common CTF keywords
+        ctf_keywords = ['flag', 'ctf', 'picoctf', 'flag{', 'ctf{', 'password', 'secret', 'key']
+        print(f"{Fore.CYAN}[DISK] Searching for CTF keywords...{Style.RESET_ALL}")
+        
+        keyword_matches = []
+        lines = all_strings.split('\n')
+        for i, line in enumerate(lines):
+            line_lower = line.lower()
+            for keyword in ctf_keywords:
+                if keyword in line_lower and len(line.strip()) > 0:
+                    # Get context (lines before and after)
+                    context_start = max(0, i - 2)
+                    context_end = min(len(lines), i + 3)
+                    context = '\n'.join(lines[context_start:context_end])
+                    
+                    if (keyword, line.strip()) not in [(k, l) for k, l, _ in keyword_matches]:
+                        keyword_matches.append((keyword, line.strip(), context))
+        
+        if keyword_matches:
+            print(f"{Fore.CYAN}[+] Found {len(keyword_matches)} potential hints:{Style.RESET_ALL}")
+            for keyword, line, context in keyword_matches[:20]:  # Show first 20
+                print(f"  [{keyword}] {line[:100]}")
+                add_to_summary("DISK-KEYWORD", f"{keyword}: {line[:80]}")
+        
+        # Check for Base64 encoded data
+        print(f"{Fore.CYAN}[DISK] Checking for Base64 encoded data...{Style.RESET_ALL}")
+        collect_base64_from_text(all_strings)
+        
+        # Search for file signatures (file carving hints)
+        print(f"{Fore.CYAN}[DISK] Checking for embedded files...{Style.RESET_ALL}")
+        with open(filepath, 'rb') as f:
+            raw_data = f.read()
+        
+        embedded_files = []
+        for ext, sig in FILE_SIGNATURES.items():
+            offset = 0
+            while True:
+                idx = raw_data.find(sig, offset)
+                if idx == -1:
+                    break
+                embedded_files.append((ext, idx))
+                print(f"  [+] Found {ext.upper()} signature at offset {idx}")
+                add_to_summary("DISK-FILE", f"{ext.upper()} at offset {idx}")
+                offset = idx + 1
+        
+        if embedded_files:
+            print(f"{Fore.GREEN}[+] Found {len(embedded_files)} file signatures{Style.RESET_ALL}")
+            # Try to extract small files
+            for ext, offset in embedded_files[:10]:
+                try:
+                    # Extract up to 10KB after the signature
+                    extract_size = min(10240, len(raw_data) - offset)
+                    extracted_data = raw_data[offset:offset + extract_size]
+                    
+                    extract_file = output_dir / f"extracted_{ext}_offset_{offset}.bin"
+                    with open(extract_file, 'wb') as ef:
+                        ef.write(extracted_data)
+                    
+                    # Search for flags in extracted data
+                    result = subprocess.run(['strings'], input=extracted_data, capture_output=True, text=True)
+                    extracted_strings = result.stdout
+                    
+                    for pattern in COMMON_FLAG_PATTERNS:
+                        matches = re.findall(pattern, extracted_strings, re.IGNORECASE)
+                        for match in matches:
+                            if match not in flags_found:
+                                flags_found.append(match)
+                                print(f"{Fore.GREEN}[!] FLAG in embedded {ext}: {match}{Style.RESET_ALL}")
+                                add_to_summary("DISK-EMBEDDED-FLAG", f"{match} in {ext} at offset {offset}")
+                except Exception as e:
+                    continue
+        
+        # Save summary
+        summary_file = output_dir / "analysis_summary.txt"
+        with open(summary_file, 'w') as f:
+            f.write(f"Disk Image Analysis Summary\n")
+            f.write(f"="*50 + "\n")
+            f.write(f"File: {filepath.name}\n")
+            f.write(f"Size: {filepath.stat().st_size} bytes\n\n")
+            f.write(f"Flags Found: {len(flags_found)}\n")
+            for flag in flags_found:
+                f.write(f"  - {flag}\n")
+            f.write(f"\nFile Signatures Found: {len(embedded_files)}\n")
+            for ext, offset in embedded_files:
+                f.write(f"  - {ext.upper()} at offset {offset}\n")
+        
+        add_to_summary("DISK-ANALYSIS", f"Results saved to '{output_dir.name}'")
+        
+        if not flags_found:
+            print(f"{Fore.YELLOW}[!] No flags found in disk image{Style.RESET_ALL}")
+        
+    except subprocess.TimeoutExpired:
+        print(f"{Fore.RED}[DISK] Analysis timeout.{Style.RESET_ALL}")
+    except Exception as e:
+        print(f"{Fore.RED}[DISK] Analysis failed: {e}{Style.RESET_ALL}")
+
 def analyze_pcap_full(filepath: Path):
     print(f"{Fore.BLUE}{'='*60}")
     print(f"PCAP ANALYSIS: {filepath.name}")
@@ -1093,6 +1233,7 @@ def process_file(filepath: Path, args):
     is_png = "png" in file_desc
     is_jpg = "jpeg" in file_desc or "jpg" in file_desc
     is_pcap = "pcap" in file_desc or "capture" in file_desc or repaired.suffix.lower() in ['.pcap', '.pcapng', '.cap']
+    is_disk = repaired.suffix.lower() in ['.dd', '.img', '.raw', '.iso', '.vmdk', '.qcow2', '.vhd'] or args.disk
 
     if args.pcap and is_pcap:
         analyze_pcap_full(repaired)
@@ -1142,6 +1283,9 @@ def process_file(filepath: Path, args):
                 if wordlist_path.exists():
                     wordlist = wordlist_path.read_text().splitlines()
             bruteforce_steghide(repaired, wordlist, args.delay)
+        
+        if is_disk or args.disk:
+            analyze_disk_image(repaired)
     
     else:
         if is_image:
@@ -1177,6 +1321,9 @@ def process_file(filepath: Path, args):
         
         elif is_executable:
             print(f"{Fore.GREEN}[BINARY] Additional binary analysis...{Style.RESET_ALL}")
+        
+        elif is_disk or args.disk:
+            analyze_disk_image(repaired)
 
     # Generate detailed final report
     print_final_report(filepath.name)
@@ -1277,7 +1424,7 @@ def main():
 
     parser = argparse.ArgumentParser(
         description="CTF Forensic Tools - AperiSolve Style Multi-Tools",
-        epilog="Examples:\n  python ForesTools.py image.png\n  python ForesTools.py image.png --all\n  python ForesTools.py image.png --bruteforce --delay 7"
+        epilog="Examples:\n  python ForesTools.py image.png\n  python ForesTools.py image.png --all\n  python ForesTools.py image.png --bruteforce --delay 7\n  python ForesTools.py disk.img --disk"
     )
     parser.add_argument("files", nargs="+", help="File(s), wildcard (*), or directory (.)")
     parser.add_argument("-f", "--format", default=None, help="Custom flag format to search (e.g., 'picoCTF{')")
@@ -1299,6 +1446,7 @@ def main():
     parser.add_argument("--decode", action="store_true", help="Auto-detect and decode encoded data (base64, hex, binary)")
     parser.add_argument("--extract", action="store_true", help="Extract embedded files from encoded text")
     parser.add_argument("--pcap", action="store_true", help="Full PCAP network analysis")
+    parser.add_argument("--disk", action="store_true", help="Analyze disk image for flags using strings")
     args = parser.parse_args()
 
     # Resolve input files

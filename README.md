@@ -1,9 +1,9 @@
 # SForensicsTools 🕵️‍♂️💻
 
 > **Smart Forensic Toolkit for CTF Challenges** 🔐  
-> Alat otomatis untuk analisis file CTF — steganografi, header repair, ekstraksi tersembunyi, dan deteksi flag 🚩
+> Alat otomatis untuk analisis file CTF — steganografi, header repair, ekstraksi tersembunyi, network forensics, disk forensics, dan deteksi flag 🚩
 
-**Versi: v2.2** — Mendukung steganography tools, network forensics (PCAP) 🌐, dan auto-decode 🔄
+**Versi: v2.3** — Mendukung steganography tools, network forensics (PCAP) 🌐, disk forensics 💾, dan auto-decode 🔄
 
 ---
 
@@ -111,6 +111,13 @@ fores secret.txt --extract    # Ekstrak semua file tersembunyi 📦
 fores capture.pcap --pcap     # Analisis full PCAP 📡
 ```
 
+### 💾 Disk Image Analysis
+```bash
+fores disk.img --disk         # Analisis disk image dengan strings 🔍
+fores forensic.dd --disk      # Auto-detect format disk (.dd, .img, .raw, .iso, .vmdk, .qcow2, .vhd) 💿
+fores challenge.img --all     # Full analysis dengan semua tools 🔥
+```
+
 ---
 
 ## 📁 Output Folder
@@ -125,6 +132,7 @@ fores capture.pcap --pcap     # Analisis full PCAP 📡
 | `*_bruteforce/` | Brute force results 🔑 |
 | `*_decoded_*` | Hasil decode (b64/hex/bin) 🔠 |
 | `*_http_objects/`, `*_streams/` | PCAP analysis results 🌐 |
+| `*_disk_analysis/` | Disk image analysis results 💾 |
 | `_extracted_*/` | Binwalk extraction 📦 |
 | `fixed_*`, `repaired_*` | Repaired headers 🔧 |
 
@@ -148,6 +156,9 @@ fores file.png --bruteforce
 fores logs.txt --decode
 fores capture.pcap --pcap
 
+# Disk forensics 💾
+fores disk.img --disk
+
 # Full analysis 💥
 fores file.png --all
 ```
@@ -160,6 +171,7 @@ fores file.png --all
 - ⚠️ Tools yang tidak terinstall akan otomatis dilewati — tidak perlu khawatir! 😌
 - 🔎 Periksa folder `*_bitplanes/` dan `*_channels/` jika flag tidak ditemukan otomatis 👀
 - 🌐 Untuk file `.pcap`, gunakan `--pcap` untuk ekstrak HTTP objects, DNS queries, dan credentials 🔓
+- 💾 Untuk disk image (`.img`, `.dd`, `.raw`), gunakan `--disk` untuk mencari flag dengan strings dan ekstrak file tersembunyi 🕵️
 - 🧪 Cobalah `--remap` pada gambar dengan noise tinggi — sering menyembunyikan flag di palette warna! 🌈
 
 ---
