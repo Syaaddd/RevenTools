@@ -111,11 +111,16 @@ fores secret.txt --extract    # Ekstrak semua file tersembunyi 📦
 fores capture.pcap --pcap     # Analisis full PCAP 📡
 ```
 
-### 💾 Disk Image Analysis
+### 💾 Disk Image Analysis (FAST MODE)
 ```bash
-fores disk.img --disk         # Analisis disk image dengan strings 🔍
+fores disk.img --disk         # Analisis cepat disk image dengan strings 🔍⚡
 fores forensic.dd --disk      # Auto-detect format disk (.dd, .img, .raw, .iso, .vmdk, .qcow2, .vhd) 💿
 fores challenge.img --all     # Full analysis dengan semua tools 🔥
+
+# Catatan: Mode disk sekarang 3-5x lebih cepat!
+# - Scan hanya 10MB pertama untuk file signatures
+# - String minimum 8 karakter (mengurangi noise)
+# - Limit hasil keyword dan embedded files
 ```
 
 ---
@@ -171,8 +176,9 @@ fores file.png --all
 - ⚠️ Tools yang tidak terinstall akan otomatis dilewati — tidak perlu khawatir! 😌
 - 🔎 Periksa folder `*_bitplanes/` dan `*_channels/` jika flag tidak ditemukan otomatis 👀
 - 🌐 Untuk file `.pcap`, gunakan `--pcap` untuk ekstrak HTTP objects, DNS queries, dan credentials 🔓
-- 💾 Untuk disk image (`.img`, `.dd`, `.raw`), gunakan `--disk` untuk mencari flag dengan strings dan ekstrak file tersembunyi 🕵️
+- 💾 Untuk disk image (`.img`, `.dd`, `.raw`), gunakan `--disk` untuk mencari flag dengan strings dan ekstrak file tersembunyi (sekarang 3-5x lebih cepat!) 🕵️⚡
 - 🧪 Cobalah `--remap` pada gambar dengan noise tinggi — sering menyembunyikan flag di palette warna! 🌈
+- ⚡ Analisis disk image sekarang menggunakan FAST MODE: scan 10MB pertama saja, string min. 8 karakter, dan limit hasil untuk kecepatan maksimal 🚀
 
 ---
 

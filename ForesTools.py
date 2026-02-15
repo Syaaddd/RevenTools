@@ -1049,114 +1049,132 @@ def check_unusual_ports(filepath: Path):
         print(f"{Fore.YELLOW}[PCAP] Port analysis failed: {e}{Style.RESET_ALL}")
 
 def analyze_disk_image(filepath: Path):
-    """Analyze disk image using strings to find flags (for DISKO CTF challenges)"""
-    print(f"{Fore.GREEN}[DISK] Analyzing disk image for hidden flags...{Style.RESET_ALL}")
+    """Analyze disk image using strings to find flags (for DISKO CTF challenges) - FAST VERSION"""
+    print(f"{Fore.GREEN}[DISK] Analyzing disk image for hidden flags (FAST MODE)...{Style.RESET_ALL}")
     
     output_dir = filepath.parent / f"{filepath.stem}_disk_analysis"
     output_dir.mkdir(exist_ok=True)
     
     flags_found = []
+    MIN_STRING_LEN = 8  # Increased from 4 to reduce noise
+    MAX_KEYWORD_RESULTS = 10  # Limit keyword matches
+    MAX_EMBEDDED_EXTRACT = 5  # Limit embedded file extraction
+    CHUNK_SIZE = 1024 * 1024  # 1MB chunks for reading
     
     try:
-        # Run strings with different encodings
-        print(f"{Fore.CYAN}[DISK] Extracting ASCII strings...{Style.RESET_ALL}")
-        result_ascii = subprocess.run(
-            ["strings", "-n", "4", str(filepath)],
-            capture_output=True, text=True, timeout=120
-        )
+        # Run both ASCII and Unicode strings in parallel for speed
+        print(f"{Fore.CYAN}[DISK] Extracting strings (ASCII + Unicode)...{Style.RESET_ALL}")
+        
+        # Use grep to filter for potential flags directly (much faster)
+        flag_patterns_grep = ['picoCTF', 'CTF{', 'flag{', 'FLAG{']
+        grep_pattern = '|'.join(flag_patterns_grep)
+        
+        # Extract strings with higher minimum length and grep filter
+        cmd_ascii = f"strings -n {MIN_STRING_LEN} '{filepath}' | grep -iE '({grep_pattern})' 2>/dev/null || strings -n {MIN_STRING_LEN} '{filepath}' | head -10000"
+        cmd_unicode = f"strings -e l -n {MIN_STRING_LEN} '{filepath}' | grep -iE '({grep_pattern})' 2>/dev/null || strings -e l -n {MIN_STRING_LEN} '{filepath}' | head -5000"
+        
+        result_ascii = subprocess.run(cmd_ascii, shell=True, capture_output=True, text=True, timeout=30)
         ascii_strings = result_ascii.stdout
         
-        print(f"{Fore.CYAN}[DISK] Extracting Unicode strings...{Style.RESET_ALL}")
-        result_unicode = subprocess.run(
-            ["strings", "-e", "l", "-n", "4", str(filepath)],
-            capture_output=True, text=True, timeout=120
-        )
+        result_unicode = subprocess.run(cmd_unicode, shell=True, capture_output=True, text=True, timeout=30)
         unicode_strings = result_unicode.stdout
         
         # Combine all strings
         all_strings = ascii_strings + "\n" + unicode_strings
         
-        # Save strings to file for analysis
+        # Save strings to file (async/write in background would be better but keeping it simple)
         strings_file = output_dir / "extracted_strings.txt"
         with open(strings_file, 'w', encoding='utf-8', errors='ignore') as f:
-            f.write(all_strings)
+            f.write(all_strings[:100000])  # Limit output file size
         print(f"{Fore.CYAN}[+] Strings saved to: {strings_file.name}{Style.RESET_ALL}")
         
         # Search for common flag patterns
         print(f"{Fore.GREEN}[DISK] Searching for flags in strings...{Style.RESET_ALL}")
         for pattern in COMMON_FLAG_PATTERNS:
             matches = re.findall(pattern, all_strings, re.IGNORECASE)
-            for match in matches:
+            for match in matches[:5]:  # Limit to first 5 matches per pattern
                 if match not in flags_found:
                     flags_found.append(match)
                     print(f"{Fore.GREEN}[!] FLAG FOUND: {match}{Style.RESET_ALL}")
                     add_to_summary("DISK-FLAG", match)
         
-        # Search for common CTF keywords
-        ctf_keywords = ['flag', 'ctf', 'picoctf', 'flag{', 'ctf{', 'password', 'secret', 'key']
+        # Search for common CTF keywords (optimized)
+        ctf_keywords = ['flag{', 'ctf{', 'picoctf', 'password', 'secret']
         print(f"{Fore.CYAN}[DISK] Searching for CTF keywords...{Style.RESET_ALL}")
         
         keyword_matches = []
         lines = all_strings.split('\n')
-        for i, line in enumerate(lines):
+        seen_lines = set()
+        
+        for line in lines[:1000]:  # Limit to first 1000 lines
+            if len(keyword_matches) >= MAX_KEYWORD_RESULTS:
+                break
+            
             line_lower = line.lower()
             for keyword in ctf_keywords:
-                if keyword in line_lower and len(line.strip()) > 0:
-                    # Get context (lines before and after)
-                    context_start = max(0, i - 2)
-                    context_end = min(len(lines), i + 3)
-                    context = '\n'.join(lines[context_start:context_end])
-                    
-                    if (keyword, line.strip()) not in [(k, l) for k, l, _ in keyword_matches]:
-                        keyword_matches.append((keyword, line.strip(), context))
+                if keyword in line_lower and line.strip() and line.strip() not in seen_lines:
+                    keyword_matches.append((keyword, line.strip()))
+                    seen_lines.add(line.strip())
+                    break
         
         if keyword_matches:
             print(f"{Fore.CYAN}[+] Found {len(keyword_matches)} potential hints:{Style.RESET_ALL}")
-            for keyword, line, context in keyword_matches[:20]:  # Show first 20
-                print(f"  [{keyword}] {line[:100]}")
-                add_to_summary("DISK-KEYWORD", f"{keyword}: {line[:80]}")
+            for keyword, line in keyword_matches:
+                print(f"  [{keyword}] {line[:80]}")
+                add_to_summary("DISK-KEYWORD", f"{keyword}: {line[:60]}")
         
-        # Check for Base64 encoded data
+        # Check for Base64 encoded data (limited)
         print(f"{Fore.CYAN}[DISK] Checking for Base64 encoded data...{Style.RESET_ALL}")
-        collect_base64_from_text(all_strings)
+        collect_base64_from_text(all_strings[:50000])  # Limit text size
         
-        # Search for file signatures (file carving hints)
+        # Search for file signatures (optimized - only scan first 10MB)
         print(f"{Fore.CYAN}[DISK] Checking for embedded files...{Style.RESET_ALL}")
+        
+        # Only read first 10MB for signature scanning (much faster)
+        file_size = filepath.stat().st_size
+        scan_size = min(10 * 1024 * 1024, file_size)  # 10MB max
+        
         with open(filepath, 'rb') as f:
-            raw_data = f.read()
+            raw_data = f.read(scan_size)
         
         embedded_files = []
-        for ext, sig in FILE_SIGNATURES.items():
-            offset = 0
-            while True:
-                idx = raw_data.find(sig, offset)
-                if idx == -1:
-                    break
+        # Only check most common file types
+        common_sigs = {
+            "png": b"\x89\x50\x4E\x47\x0D\x0A\x1A\x0A",
+            "jpg": b"\xFF\xD8\xFF",
+            "zip": b"\x50\x4B\x03\x04",
+            "pdf": b"\x25\x50\x44\x46",
+            "gif": b"\x47\x49\x46\x38",
+        }
+        
+        for ext, sig in common_sigs.items():
+            idx = raw_data.find(sig)
+            if idx != -1:
                 embedded_files.append((ext, idx))
                 print(f"  [+] Found {ext.upper()} signature at offset {idx}")
                 add_to_summary("DISK-FILE", f"{ext.upper()} at offset {idx}")
-                offset = idx + 1
         
         if embedded_files:
             print(f"{Fore.GREEN}[+] Found {len(embedded_files)} file signatures{Style.RESET_ALL}")
-            # Try to extract small files
-            for ext, offset in embedded_files[:10]:
+            # Try to extract only first few files
+            for ext, offset in embedded_files[:MAX_EMBEDDED_EXTRACT]:
                 try:
-                    # Extract up to 10KB after the signature
-                    extract_size = min(10240, len(raw_data) - offset)
+                    # Extract up to 5KB after the signature
+                    extract_size = min(5120, len(raw_data) - offset)
                     extracted_data = raw_data[offset:offset + extract_size]
                     
                     extract_file = output_dir / f"extracted_{ext}_offset_{offset}.bin"
                     with open(extract_file, 'wb') as ef:
                         ef.write(extracted_data)
                     
-                    # Search for flags in extracted data
-                    result = subprocess.run(['strings'], input=extracted_data, capture_output=True, text=True)
+                    # Quick strings search for flags
+                    result = subprocess.run(['strings', '-n', '8'], input=extracted_data, 
+                                          capture_output=True, text=True, timeout=5)
                     extracted_strings = result.stdout
                     
-                    for pattern in COMMON_FLAG_PATTERNS:
+                    for pattern in COMMON_FLAG_PATTERNS[:2]:  # Only first 2 patterns
                         matches = re.findall(pattern, extracted_strings, re.IGNORECASE)
-                        for match in matches:
+                        for match in matches[:2]:  # Limit matches
                             if match not in flags_found:
                                 flags_found.append(match)
                                 print(f"{Fore.GREEN}[!] FLAG in embedded {ext}: {match}{Style.RESET_ALL}")
