@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════
-#  ForesTools v2.0 — CTF Forensic Toolkit (STANDALONE .sh)
-#  Tidak perlu file Python terpisah — semua ada di sini
+#  ForesTools v3.0 — CTF Forensic Toolkit (GLOBAL INSTALL)
+#  Jalankan dari mana saja setelah install: forestools [FILE] [OPTIONS]
+#  Install global: ./forestools.sh --install-global
 #  Usage: ./forestools.sh [FILE(S)] [OPTIONS]
 # ══════════════════════════════════════════════════════════════════
 
@@ -21,8 +22,13 @@ err_msg() { echo -e "${RED}[ERR]${NC}   $*" >&2; }
 die()     { err_msg "$*"; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV_DIR="$SCRIPT_DIR/.venv"
-PYTHON_INLINE="$SCRIPT_DIR/.forestools_engine.py"
+
+# ── Data disimpan di ~/.forestools (bukan folder script)
+# ── sehingga bisa dijalankan dari direktori mana saja
+FORESTOOLS_HOME="${FORESTOOLS_HOME:-$HOME/.forestools}"
+VENV_DIR="$FORESTOOLS_HOME/venv"
+PYTHON_INLINE="$FORESTOOLS_HOME/engine.py"
+GLOBAL_BIN="/usr/local/bin/forestools"
 
 # ─────────────────────────────────────────────
 # BANNER
@@ -95,6 +101,8 @@ ${BOLD}Brute Force:${NC}
 ${BOLD}Misc:${NC}
   -f, --format STR Custom flag prefix (e.g. 'picoCTF{')
   --install        Install semua optional tools
+  --install-global Install forestools ke /usr/local/bin (jalankan dari mana saja)
+  --uninstall      Hapus forestools dari sistem
   --update-deps    Reinstall Python dependencies
   -h, --help       Tampilkan help ini
 
@@ -111,6 +119,8 @@ ${BOLD}Contoh:${NC}
   ./forestools.sh secret.txt --deobfuscate     # Reverse/ROT13/caesar
   ./forestools.sh *.png --auto                 # Batch auto mode
   ./forestools.sh --install                    # Install semua tools
+  ./forestools.sh --install-global             # Install global (bisa dipanggil sebagai: forestools)
+  forestools image.png --auto                  # Setelah install-global
 EOF
 }
 
@@ -175,6 +185,66 @@ install_tools() {
 }
 
 # ─────────────────────────────────────────────
+# INSTALL GLOBAL (ke /usr/local/bin)
+# ─────────────────────────────────────────────
+install_global() {
+    info "Install ForesTools secara global..."
+
+    # Salin script ini ke /usr/local/bin/forestools
+    local src="${BASH_SOURCE[0]}"
+    local dest="$GLOBAL_BIN"
+
+    if [[ ! -w "$(dirname $dest)" ]]; then
+        info "Butuh sudo untuk install ke $dest"
+        sudo cp "$src" "$dest"
+        sudo chmod +x "$dest"
+    else
+        cp "$src" "$dest"
+        chmod +x "$dest"
+    fi
+
+    # Buat direktori home
+    mkdir -p "$FORESTOOLS_HOME"
+
+    # Pre-setup venv sekarang juga
+    local py
+    py=$(check_python) || die "Python 3.8+ tidak ditemukan."
+    setup_venv "$py"
+    write_python_engine
+
+    success "ForesTools terinstall secara global!"
+    echo ""
+    echo -e "  ${GREEN}Sekarang kamu bisa jalankan dari mana saja:${NC}"
+    echo -e "  ${BOLD}  forestools image.png --auto${NC}"
+    echo -e "  ${BOLD}  forestools access.log --log${NC}"
+    echo -e "  ${BOLD}  forestools --folder ./challenge/${NC}"
+    echo ""
+    echo -e "  ${CYAN}Data tersimpan di: $FORESTOOLS_HOME${NC}"
+    exit 0
+}
+
+# ─────────────────────────────────────────────
+# UNINSTALL GLOBAL
+# ─────────────────────────────────────────────
+uninstall_global() {
+    info "Menghapus ForesTools dari sistem..."
+    if [[ -f "$GLOBAL_BIN" ]]; then
+        sudo rm -f "$GLOBAL_BIN" 2>/dev/null || rm -f "$GLOBAL_BIN"
+        success "Binary dihapus: $GLOBAL_BIN"
+    else
+        warn "Binary tidak ditemukan di $GLOBAL_BIN"
+    fi
+    if [[ -d "$FORESTOOLS_HOME" ]]; then
+        read -rp "Hapus juga $FORESTOOLS_HOME? [y/N] " confirm
+        if [[ "$confirm" =~ ^[Yy]$ ]]; then
+            rm -rf "$FORESTOOLS_HOME"
+            success "Direktori data dihapus."
+        fi
+    fi
+    exit 0
+}
+
+# ─────────────────────────────────────────────
 # PYTHON SETUP
 # ─────────────────────────────────────────────
 check_python() {
@@ -190,8 +260,9 @@ check_python() {
 
 setup_venv() {
     local py="$1"
+    mkdir -p "$FORESTOOLS_HOME"
     if [[ ! -d "$VENV_DIR" ]]; then
-        info "Membuat virtual environment..."
+        info "Membuat virtual environment di $FORESTOOLS_HOME/venv..."
         "$py" -m venv "$VENV_DIR" || die "Gagal buat venv. Install python3-venv?"
         success "Virtual environment dibuat."
     fi
@@ -2025,8 +2096,10 @@ main() {
 
     for arg in "$@"; do
         case "$arg" in
-            --install)   install_tools ;;
-            -h|--help)   usage; exit 0 ;;
+            --install)         install_tools ;;
+            --install-global)  install_global ;;
+            --uninstall)       uninstall_global ;;
+            -h|--help)         usage; exit 0 ;;
         esac
     done
 
@@ -2039,7 +2112,7 @@ main() {
     for arg in "$@"; do
         if [[ "$arg" == "--update-deps" ]]; then
             [[ -d "$VENV_DIR" ]] && rm -rf "$VENV_DIR"
-            info "Venv dihapus, akan dibuat ulang..."
+            info "Venv di $FORESTOOLS_HOME dihapus, akan dibuat ulang..."
             break
         fi
     done
