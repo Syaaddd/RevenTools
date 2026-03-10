@@ -298,3 +298,107 @@ Deteksi otomatis:
 
 Dikembangkan oleh **Syaaddd** 👨‍💻 — untuk para pejuang CTF! 🏆🚩  
 [GitHub Repository](https://github.com/Syaaddd/SForensicsTools) 💻✨
+
+
+---
+
+## 🆕 v3.0 — Auto-Solve CTF Challenges
+
+ForesTools v3.0 dirancang berdasarkan 11 writeup CTF nyata untuk bisa **auto-mengerjakan soal** forensics umum.
+
+### 🗂️ Peta Soal → Fitur
+
+| Tipe Soal | Command | Teknik |
+|-----------|---------|--------|
+| **Registry Artifact** | `--reg` | Parse .reg, decode hex: values, scan RunOnce/Run keys |
+| **Log Timeline** | `--log` | IP frequency, attack detection, flag di URL path |
+| **USB Autorun** | `--autorun` | Parse .inf, reverse string, ROT13, caesar, base64 |
+| **Corrupted Header** | *(auto)* | Fix magic bytes PNG/JPEG, baca metadata |
+| **Zip Password Crack** | `--zipcrack` | Coba tanpa PW → rockyou.txt → fcrackzip |
+| **Base64 in the Wild** | *(auto)* | Auto-detect & decode base64 di semua file |
+| **Metadata Exposed** | *(auto)* | exiftool flag scan di EXIF/User Comment |
+| **File Signature Magic** | `--folder` | Detect fake extension via magic bytes, auto-extract |
+| **Strings Hunt** | *(auto)* | strings + flag scan otomatis |
+| **Volatility Forensics** | `--volatility` | windows.info/pslist/envars/filescan/dumpfiles |
+| **Stealth Extension** | `--folder` | Deteksi ZIP disamarkan sebagai .jpg, auto-unzip |
+
+---
+
+### 🔑 Fitur Baru v3.0
+
+#### `--reg` — Windows Registry Analysis
+```bash
+./forestools.sh artifact.reg --reg
+# Auto: parse semua key, decode hex: values (REG_BINARY),
+#       scan RunOnce/Run/UserInit, deobfuscate string values
+```
+
+#### `--log` — Web Server Log Analysis  
+```bash
+./forestools.sh access.log --log
+# Auto: IP frequency (attacker detection), HTTP status,
+#       attack pattern (SQLi/XSS/LFI/traversal), flag di URL 200-OK
+```
+
+#### `--autorun` — Autorun/INF File Analysis
+```bash
+./forestools.sh autorun.inf --autorun
+# Auto: baca semua komentar, coba reverse/ROT13/caesar/atbash/base64
+```
+
+#### `--zipcrack` — ZIP Password Cracker
+```bash
+./forestools.sh evidence.zip --zipcrack
+./forestools.sh evidence.zip --zipcrack --wordlist custom.txt
+# Step: (1) tanpa password → (2) password kosong → (3) rockyou.txt → (4) fcrackzip
+```
+
+#### `--folder` — Fake Extension Scanner
+```bash
+./forestools.sh --folder ./Stealth_Extension/
+# Auto: baca magic bytes semua file, deteksi mismatch ekstensi,
+#       rename + extract jika ZIP, scan flag di semua file
+```
+
+#### `--volatility` — Memory Forensics
+```bash
+./forestools.sh chall.raw --volatility
+./forestools.sh chall.raw --volatility --vol-plugin windows.cmdline windows.netscan
+# Auto: windows.info → pslist → envars → filescan → dumpfiles (file menarik)
+```
+
+#### `--deobfuscate` — Deobfuscation Engine
+```bash
+./forestools.sh secret.txt --deobfuscate
+# Coba: reverse, ROT13, atbash, caesar (1-25), base64, hex, reverse+b64
+```
+
+---
+
+### ⚡ Quick Cheat Sheet v3.0
+
+```bash
+# Soal registry  → decode hex values
+./forestools.sh artifact.reg --reg
+
+# Soal log       → temukan flag di URL / attacker activity  
+./forestools.sh access.log --log
+
+# Soal autorun   → reverse/ROT13/caesar di komentar .inf
+./forestools.sh autorun.inf --autorun
+
+# Soal ZIP pw    → crack otomatis
+./forestools.sh evidence.zip --zipcrack
+
+# Soal fake ext  → scan folder, detect ZIP-as-JPG dll
+./forestools.sh --folder ./challenge_dir/
+
+# Soal memory    → volatility3 auto pipeline
+./forestools.sh memory.raw --volatility
+
+# Soal obfuscasi → semua metode decode sekaligus
+./forestools.sh file.txt --deobfuscate
+
+# Tidak tahu soal apa → auto mode (paling lengkap)
+./forestools.sh * --auto
+```
