@@ -1,7 +1,7 @@
-# ForesTools 🕵️‍♂️💻
+# RAVEN 🐦‍⬛💻
 
-> **Smart Forensic Toolkit for CTF Challenges** 🔐  
-> Alat otomatis untuk analisis file CTF — steganografi, header repair, ekstraksi tersembunyi, network forensics, disk forensics, dan deteksi flag 🚩
+> **Smart CTF Multi-Category Toolkit** 🔐  
+> Alat otomatis untuk semua kategori CTF — forensics, steganografi, cryptography, network, memory forensics, dan deteksi flag 🚩
 
 **Versi: v3.0** — 🚀 **GLOBAL INSTALL + AUTO-SOLVE CTF** - Jalankan dari mana saja, 8 fitur baru berbasis writeup nyata
 
@@ -11,25 +11,25 @@
 
 ### 1. Clone / Download
 ```bash
-git clone https://github.com/Syaaddd/SForensicsTools.git
-cd SForensicsTools
-chmod +x forestools.sh
+git clone https://github.com/Syaaddd/raven-ctf.git
+cd raven-ctf
+chmod +x raven.sh
 ```
 
 ### 2. Install Global ⚡ (BARU v3.0 — Jalankan dari mana saja!)
 ```bash
-./forestools.sh --install-global
+./raven.sh --install-global
 ```
-Setelah ini, cukup ketik `forestools` dari direktori mana pun:
+Setelah ini, cukup ketik `raven` dari direktori mana pun:
 ```bash
-forestools image.png --auto
-forestools access.log --log
-forestools --folder ./challenge/
+raven image.png --auto
+raven access.log --log
+raven --folder ./challenge/
 ```
 
 ### 3. Install Semua Tools Sistem (Otomatis)
 ```bash
-./forestools.sh --install
+./raven.sh --install
 ```
 Menginstall: steghide, stegseek, zsteg, foremost, exiftool, tshark, rockyou.txt, fcrackzip, dll.
 
@@ -75,14 +75,14 @@ pip install colorama Pillow numpy
 ## 📁 Struktur
 
 ```
-SForensicsTools/
-└── forestools.sh          ← Satu file ini sudah cukup!
+raven-ctf/
+└── raven.sh          ← Satu file ini sudah cukup!
 
-~/.forestools/             ← Data runtime (dibuat otomatis)
+~/.raven/             ← Data runtime (dibuat otomatis)
 ├── venv/                  ← Python venv
 └── engine.py              ← Python engine (auto-generated)
 
-/usr/local/bin/forestools  ← Binary global (setelah --install-global)
+/usr/local/bin/raven  ← Binary global (setelah --install-global)
 ```
 
 ---
@@ -91,69 +91,69 @@ SForensicsTools/
 
 ```bash
 # Setelah --install-global:
-forestools [FILE(S)] [OPTIONS]
+raven [FILE(S)] [OPTIONS]
 
 # Atau langsung dari folder download:
-./forestools.sh [FILE(S)] [OPTIONS]
+./raven.sh [FILE(S)] [OPTIONS]
 ```
 
 ### 📤 Input
 ```bash
-forestools challenge.png
-forestools *.png
-forestools secret.jpg data.zip firmware.bin
-forestools /path/to/challenges/
-forestools -f "picoCTF{" suspicious.png
+raven challenge.png
+raven *.png
+raven secret.jpg data.zip firmware.bin
+raven /path/to/challenges/
+raven -f "picoCTF{" suspicious.png
 ```
 
 ### 🤖 Mode Analisis
 ```bash
-forestools image.png --auto      # Auto-detect semua tools sesuai tipe file
-forestools image.png --all       # Jalankan SEMUA analisis
-forestools image.png --quick     # ULTRA-FAST: strings + zsteg + stegseek + early exit
+raven image.png --auto      # Auto-detect semua tools sesuai tipe file
+raven image.png --all       # Jalankan SEMUA analisis
+raven image.png --quick     # ULTRA-FAST: strings + zsteg + stegseek + early exit
 ```
 
 ### 🗝️ CTF Spesifik (v3.0)
 ```bash
-forestools artifact.reg   --reg              # Windows Registry analysis
-forestools access.log     --log              # Web server log analysis
-forestools autorun.inf    --autorun          # Autorun/INF file analysis
-forestools evidence.zip   --zipcrack         # Crack ZIP password otomatis
-forestools chall.raw      --volatility       # Memory forensics (Volatility 3)
-forestools secret.txt     --deobfuscate      # Reverse/ROT13/caesar/atbash/b64
-forestools                --folder ./dir/    # Fake extension scanner
+raven artifact.reg   --reg              # Windows Registry analysis
+raven access.log     --log              # Web server log analysis
+raven autorun.inf    --autorun          # Autorun/INF file analysis
+raven evidence.zip   --zipcrack         # Crack ZIP password otomatis
+raven chall.raw      --volatility       # Memory forensics (Volatility 3)
+raven secret.txt     --deobfuscate      # Reverse/ROT13/caesar/atbash/b64
+raven                --folder ./dir/    # Fake extension scanner
 ```
 
 ### 🔒 Steganografi
 ```bash
-forestools image.png --lsb        # LSB analysis (zsteg)
-forestools image.jpg --steghide   # Steghide extraction
-forestools image.jpg --stegseek   # Stegseek + rockyou.txt
-forestools image.jpg --outguess   # Outguess (JPEG)
-forestools image.png --pngcheck   # Validasi PNG
-forestools image.jpg --jpsteg     # JPEG steganalysis
-forestools image.png --foremost   # File carving
-forestools image.png --exif       # Deep EXIF analysis
-forestools image.png --stegdetect # Deteksi metode stego
-forestools image.png --lsbextract # Ekstrak raw LSB bytes
-forestools image.png --remap      # Color remapping (8 variants)
-forestools image.png --deep       # Semua 8 bit plane
-forestools img1.png --compare img2.png
+raven image.png --lsb        # LSB analysis (zsteg)
+raven image.jpg --steghide   # Steghide extraction
+raven image.jpg --stegseek   # Stegseek + rockyou.txt
+raven image.jpg --outguess   # Outguess (JPEG)
+raven image.png --pngcheck   # Validasi PNG
+raven image.jpg --jpsteg     # JPEG steganalysis
+raven image.png --foremost   # File carving
+raven image.png --exif       # Deep EXIF analysis
+raven image.png --stegdetect # Deteksi metode stego
+raven image.png --lsbextract # Ekstrak raw LSB bytes
+raven image.png --remap      # Color remapping (8 variants)
+raven image.png --deep       # Semua 8 bit plane
+raven img1.png --compare img2.png
 ```
 
 ### 🔑 Brute Force
 ```bash
-forestools image.png --bruteforce
-forestools image.png --bruteforce --parallel 10
-forestools image.png --bruteforce --wordlist dict.txt
-forestools image.jpg --stegseek --wordlist rockyou.txt
+raven image.png --bruteforce
+raven image.png --bruteforce --parallel 10
+raven image.png --bruteforce --wordlist dict.txt
+raven image.jpg --stegseek --wordlist rockyou.txt
 ```
 
 ### 🌐 Network & Disk
 ```bash
-forestools capture.pcap --pcap
-forestools disk.img --disk
-forestools security.evtx --windows
+raven capture.pcap --pcap
+raven disk.img --disk
+raven security.evtx --windows
 ```
 
 ---
@@ -200,7 +200,7 @@ forestools security.evtx --windows
 | **Quick Mode** | ❌ | ✅ | ✅ |
 | **Parallel brute force** | ❌ | ✅ 5 thread | ✅ 8 thread |
 | **Standalone .sh** | ❌ | ✅ | ✅ |
-| **Auto venv** | ❌ | ✅ `.venv/` | ✅ `~/.forestools/` |
+| **Auto venv** | ❌ | ✅ `.venv/` | ✅ `~/.raven/` |
 
 ---
 
@@ -208,14 +208,14 @@ forestools security.evtx --windows
 
 | Masalah | Solusi |
 |---------|--------|
-| `Permission denied` | `chmod +x forestools.sh` |
+| `Permission denied` | `chmod +x raven.sh` |
 | `Python not found` | `sudo apt install python3` |
-| `stegseek not found` | `./forestools.sh --install` |
+| `stegseek not found` | `./raven.sh --install` |
 | `rockyou.txt not found` | `sudo apt install wordlists && sudo gunzip /usr/share/wordlists/rockyou.txt.gz` |
 | `volatility not found` | `pip install volatility3` |
-| `forestools: command not found` | `./forestools.sh --install-global` |
-| Python deps error | `forestools --update-deps` |
-| Venv error | `rm -rf ~/.forestools/venv` lalu jalankan ulang |
+| `raven: command not found` | `./raven.sh --install-global` |
+| Python deps error | `raven --update-deps` |
+| Venv error | `rm -rf ~/.raven/venv` lalu jalankan ulang |
 
 ---
 
@@ -239,9 +239,9 @@ forestools security.evtx --windows
 > **Tema: Global Install + Auto-Solve CTF berbasis 11 writeup nyata**
 
 **🆕 Fitur Baru**
-- `--install-global` — Install ke `/usr/local/bin/forestools`, jalankan dari direktori mana saja
+- `--install-global` — Install ke `/usr/local/bin/raven`, jalankan dari direktori mana saja
 - `--uninstall` — Hapus binary dan data dari sistem
-- `~/.forestools/` — Venv & engine disimpan di home user (bukan folder script), sehingga script bisa dipindah/dipanggil dari mana saja
+- `~/.raven/` — Venv & engine disimpan di home user (bukan folder script), sehingga script bisa dipindah/dipanggil dari mana saja
 - `--reg` — Windows Registry parser: decode semua nilai `hex:` (REG_BINARY) ke UTF-16/UTF-8, scan key Run/RunOnce/UserInit, deobfuscate string values
 - `--log` — Web server log analyzer: IP frequency (attacker detection), HTTP status distribution, attack pattern detection (SQLi/XSS/LFI/traversal/webshell), flag di URL 200-OK, timeline
 - `--autorun` — Autorun/INF file analyzer: baca semua komentar, coba reverse / ROT13 / caesar brute (1-25) / atbash / base64 otomatis
@@ -266,7 +266,7 @@ forestools security.evtx --windows
 > **Tema: Standalone .sh + Stegseek + Parallel Brute Force**
 
 **🆕 Fitur Baru**
-- **Standalone** — Python engine di-embed langsung dalam `.sh` via heredoc, tidak perlu `ForesTools.py` terpisah
+- **Standalone** — Python engine di-embed langsung dalam `.sh` via heredoc, tidak perlu `RAVEN.py` terpisah
 - `--stegseek` — Stegseek brute-force dengan rockyou.txt (~14 juta password)
 - `--install` — Auto-install semua tools sistem via apt/brew termasuk stegseek & rockyou
 - `--update-deps` — Reinstall Python dependencies di venv
@@ -277,7 +277,7 @@ forestools security.evtx --windows
 - `--compare FILE` — Pixel diff dua gambar
 - Parallel brute-force steghide dengan `ThreadPoolExecutor`
 - Rockyou.txt auto-detect di `/usr/share/wordlists/` dan `/opt/`
-- Banner ASCII art ForesTools
+- Banner ASCII art RAVEN
 
 **🔧 Perbaikan**
 - `_tshark()` helper mengurangi duplikasi kode PCAP
@@ -307,4 +307,4 @@ forestools security.evtx --windows
 ---
 
 Dikembangkan oleh **Syaaddd** 👨‍💻 — untuk para pejuang CTF! 🏆🚩  
-[GitHub Repository](https://github.com/Syaaddd/SForensicsTools) 💻✨
+[GitHub Repository](https://github.com/Syaaddd/raven-ctf) 💻✨
