@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════
-#  ForesTools v3.0 — CTF Forensic Toolkit (GLOBAL INSTALL)
-#  Jalankan dari mana saja setelah install: forestools [FILE] [OPTIONS]
-#  Install global: ./forestools.sh --install-global
-#  Usage: ./forestools.sh [FILE(S)] [OPTIONS]
+#  RAVEN v3.0 — CTF Multi-Category Toolkit (GLOBAL INSTALL)
+#  Jalankan dari mana saja setelah install: raven [FILE] [OPTIONS]
+#  Install global: ./raven.sh --install-global
+#  Usage: ./raven.sh [FILE(S)] [OPTIONS]
 # ══════════════════════════════════════════════════════════════════
 
 set -euo pipefail
@@ -23,12 +23,12 @@ die()     { err_msg "$*"; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# ── Data disimpan di ~/.forestools (bukan folder script)
+# ── Data disimpan di ~/.raven (bukan folder script)
 # ── sehingga bisa dijalankan dari direktori mana saja
-FORESTOOLS_HOME="${FORESTOOLS_HOME:-$HOME/.forestools}"
-VENV_DIR="$FORESTOOLS_HOME/venv"
-PYTHON_INLINE="$FORESTOOLS_HOME/engine.py"
-GLOBAL_BIN="/usr/local/bin/forestools"
+RAVEN_HOME="${RAVEN_HOME:-$HOME/.raven}"
+VENV_DIR="$RAVEN_HOME/venv"
+PYTHON_INLINE="$RAVEN_HOME/engine.py"
+GLOBAL_BIN="/usr/local/bin/raven"
 
 # ─────────────────────────────────────────────
 # BANNER
@@ -36,13 +36,13 @@ GLOBAL_BIN="/usr/local/bin/forestools"
 banner() {
 cat << 'BANNER'
 
-  ███████╗ ██████╗ ██████╗ ███████╗███████╗████████╗ ██████╗  ██████╗ ██╗     ███████╗
-  ██╔════╝██╔═══██╗██╔══██╗██╔════╝██╔════╝╚══██╔══╝██╔═══██╗██╔═══██╗██║     ██╔════╝
-  █████╗  ██║   ██║██████╔╝█████╗  ███████╗   ██║   ██║   ██║██║   ██║██║     ███████╗
-  ██╔══╝  ██║   ██║██╔══██╗██╔══╝  ╚════██║   ██║   ██║   ██║██║   ██║██║     ╚════██║
-  ██║     ╚██████╔╝██║  ██║███████╗███████║   ██║   ╚██████╔╝╚██████╔╝███████╗███████║
-  ╚═╝      ╚═════╝ ╚═╝  ╚═╝╚══════╝╚══════╝   ╚═╝    ╚═════╝  ╚═════╝ ╚══════╝╚══════╝
-                          CTF Forensic Toolkit v2.0  — Standalone Edition
+  ██████╗   █████╗  ██╗   ██╗ ███████╗ ███╗  ██╗
+  ██╔══██╗ ██╔══██╗ ██║   ██║ ██╔════╝ ████╗ ██║
+  ██████╔╝ ███████║ ██║   ██║ █████╗   ██╔██╗██║
+  ██╔══██╗ ██╔══██║ ╚██╗ ██╔╝ ██╔══╝   ██║╚████║
+  ██║  ██║ ██║  ██║  ╚████╔╝  ███████╗ ██║ ╚███║
+  ╚═╝  ╚═╝ ╚═╝  ╚═╝   ╚═══╝   ╚══════╝ ╚═╝  ╚══╝
+           CTF Multi-Category Toolkit v3.0  — by Syaaddd
 BANNER
 }
 
@@ -52,7 +52,7 @@ BANNER
 usage() {
 cat << EOF
 ${BOLD}Usage:${NC}
-  ./forestools.sh [OPTIONS] FILE [FILE...]
+  ./raven.sh [OPTIONS] FILE [FILE...]
 
 ${BOLD}Modes:${NC}
   --quick          Ultra-fast: strings + zsteg + stegseek + early exit
@@ -101,26 +101,26 @@ ${BOLD}Brute Force:${NC}
 ${BOLD}Misc:${NC}
   -f, --format STR Custom flag prefix (e.g. 'picoCTF{')
   --install        Install semua optional tools
-  --install-global Install forestools ke /usr/local/bin (jalankan dari mana saja)
-  --uninstall      Hapus forestools dari sistem
+  --install-global Install raven ke /usr/local/bin (jalankan dari mana saja)
+  --uninstall      Hapus raven dari sistem
   --update-deps    Reinstall Python dependencies
   -h, --help       Tampilkan help ini
 
 ${BOLD}Contoh:${NC}
-  ./forestools.sh image.png                    # Analisis dasar
-  ./forestools.sh image.png --quick            # Ultra-fast CTF mode
-  ./forestools.sh image.jpg --stegseek         # Brute-force stegseek
-  ./forestools.sh artifact.reg --reg           # Registry analysis
-  ./forestools.sh access.log --log             # Log analysis
-  ./forestools.sh autorun.inf --autorun        # Autorun + deobfuscate
-  ./forestools.sh evidence.zip --zipcrack      # Crack ZIP password
-  ./forestools.sh --folder ./challenge/        # Scan folder (fake ext)
-  ./forestools.sh chall.raw --volatility       # Memory forensics
-  ./forestools.sh secret.txt --deobfuscate     # Reverse/ROT13/caesar
-  ./forestools.sh *.png --auto                 # Batch auto mode
-  ./forestools.sh --install                    # Install semua tools
-  ./forestools.sh --install-global             # Install global (bisa dipanggil sebagai: forestools)
-  forestools image.png --auto                  # Setelah install-global
+  ./raven.sh image.png                    # Analisis dasar
+  ./raven.sh image.png --quick            # Ultra-fast CTF mode
+  ./raven.sh image.jpg --stegseek         # Brute-force stegseek
+  ./raven.sh artifact.reg --reg           # Registry analysis
+  ./raven.sh access.log --log             # Log analysis
+  ./raven.sh autorun.inf --autorun        # Autorun + deobfuscate
+  ./raven.sh evidence.zip --zipcrack      # Crack ZIP password
+  ./raven.sh --folder ./challenge/        # Scan folder (fake ext)
+  ./raven.sh chall.raw --volatility       # Memory forensics
+  ./raven.sh secret.txt --deobfuscate     # Reverse/ROT13/caesar
+  ./raven.sh *.png --auto                 # Batch auto mode
+  ./raven.sh --install                    # Install semua tools
+  ./raven.sh --install-global             # Install global (bisa dipanggil sebagai: raven)
+  raven image.png --auto                  # Setelah install-global
 EOF
 }
 
@@ -188,9 +188,9 @@ install_tools() {
 # INSTALL GLOBAL (ke /usr/local/bin)
 # ─────────────────────────────────────────────
 install_global() {
-    info "Install ForesTools secara global..."
+    info "Install RAVEN secara global..."
 
-    # Salin script ini ke /usr/local/bin/forestools
+    # Salin script ini ke /usr/local/bin/raven
     local src="${BASH_SOURCE[0]}"
     local dest="$GLOBAL_BIN"
 
@@ -204,7 +204,7 @@ install_global() {
     fi
 
     # Buat direktori home
-    mkdir -p "$FORESTOOLS_HOME"
+    mkdir -p "$RAVEN_HOME"
 
     # Pre-setup venv sekarang juga
     local py
@@ -212,14 +212,14 @@ install_global() {
     setup_venv "$py"
     write_python_engine
 
-    success "ForesTools terinstall secara global!"
+    success "RAVEN terinstall secara global!"
     echo ""
     echo -e "  ${GREEN}Sekarang kamu bisa jalankan dari mana saja:${NC}"
-    echo -e "  ${BOLD}  forestools image.png --auto${NC}"
-    echo -e "  ${BOLD}  forestools access.log --log${NC}"
-    echo -e "  ${BOLD}  forestools --folder ./challenge/${NC}"
+    echo -e "  ${BOLD}  raven image.png --auto${NC}"
+    echo -e "  ${BOLD}  raven access.log --log${NC}"
+    echo -e "  ${BOLD}  raven --folder ./challenge/${NC}"
     echo ""
-    echo -e "  ${CYAN}Data tersimpan di: $FORESTOOLS_HOME${NC}"
+    echo -e "  ${CYAN}Data tersimpan di: $RAVEN_HOME${NC}"
     exit 0
 }
 
@@ -227,17 +227,17 @@ install_global() {
 # UNINSTALL GLOBAL
 # ─────────────────────────────────────────────
 uninstall_global() {
-    info "Menghapus ForesTools dari sistem..."
+    info "Menghapus RAVEN dari sistem..."
     if [[ -f "$GLOBAL_BIN" ]]; then
         sudo rm -f "$GLOBAL_BIN" 2>/dev/null || rm -f "$GLOBAL_BIN"
         success "Binary dihapus: $GLOBAL_BIN"
     else
         warn "Binary tidak ditemukan di $GLOBAL_BIN"
     fi
-    if [[ -d "$FORESTOOLS_HOME" ]]; then
-        read -rp "Hapus juga $FORESTOOLS_HOME? [y/N] " confirm
+    if [[ -d "$RAVEN_HOME" ]]; then
+        read -rp "Hapus juga $RAVEN_HOME? [y/N] " confirm
         if [[ "$confirm" =~ ^[Yy]$ ]]; then
-            rm -rf "$FORESTOOLS_HOME"
+            rm -rf "$RAVEN_HOME"
             success "Direktori data dihapus."
         fi
     fi
@@ -260,9 +260,9 @@ check_python() {
 
 setup_venv() {
     local py="$1"
-    mkdir -p "$FORESTOOLS_HOME"
+    mkdir -p "$RAVEN_HOME"
     if [[ ! -d "$VENV_DIR" ]]; then
-        info "Membuat virtual environment di $FORESTOOLS_HOME/venv..."
+        info "Membuat virtual environment di $RAVEN_HOME/venv..."
         "$py" -m venv "$VENV_DIR" || die "Gagal buat venv. Install python3-venv?"
         success "Virtual environment dibuat."
     fi
@@ -288,7 +288,7 @@ check_system_tools() {
     done
     if [[ ${#missing[@]} -gt 0 ]]; then
         warn "Tools opsional tidak ditemukan: ${missing[*]}"
-        warn "Jalankan './forestools.sh --install' untuk install otomatis."
+        warn "Jalankan './raven.sh --install' untuk install otomatis."
         echo ""
     fi
 }
@@ -303,7 +303,7 @@ check_system_tools() {
 write_python_engine() {
     cat > "$PYTHON_INLINE" << 'PYTHON_ENGINE'
 #!/usr/bin/env python3
-"""ForesTools v3.0 — Python Engine (auto-generated by forestools.sh)
+"""RAVEN v3.0 — Python Engine (auto-generated by raven.sh)
 Tambahan v3.0: registry, log analysis, autorun, zip crack, folder scan,
                volatility wrapper, deobfuscation (reverse/ROT13/caesar/atbash)
 """
@@ -1980,10 +1980,10 @@ def process_file(filepath, args):
 # ── Entry Point ───────────────────────────────
 
 def main():
-    print(f"{Fore.CYAN}{'='*55}\n   ForesTools v3.0 — CTF Forensic Toolkit\n{'='*55}{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{'='*55}\n   RAVEN v3.0 — CTF Multi-Category Toolkit\n{'='*55}{Style.RESET_ALL}")
     check_tool_availability()
     p=argparse.ArgumentParser(
-        description="ForesTools v3.0 — CTF Forensic Toolkit",
+        description="RAVEN v3.0 — CTF Multi-Category Toolkit",
         formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("files",nargs="*",help="File(s), wildcard, atau direktori")
     p.add_argument("-f","--format",default=None,help="Custom flag prefix (e.g. 'picoCTF{')")
@@ -2112,7 +2112,7 @@ main() {
     for arg in "$@"; do
         if [[ "$arg" == "--update-deps" ]]; then
             [[ -d "$VENV_DIR" ]] && rm -rf "$VENV_DIR"
-            info "Venv di $FORESTOOLS_HOME dihapus, akan dibuat ulang..."
+            info "Venv di $RAVEN_HOME dihapus, akan dibuat ulang..."
             break
         fi
     done
@@ -2131,7 +2131,7 @@ main() {
     done
 
     echo ""
-    info "Menjalankan ForesTools..."
+    info "Menjalankan RAVEN..."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
 
