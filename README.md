@@ -3,7 +3,7 @@
 > **Smart Forensic Toolkit for CTF Challenges** 🔐  
 > Alat otomatis untuk analisis file CTF — steganografi, header repair, ekstraksi tersembunyi, network forensics, disk forensics, dan deteksi flag 🚩
 
-**Versi: v2.0** — 🚀 **ULTRA-FAST CTF MODE** - Stegseek + rockyou.txt, parallel brute force, early exit, smart tool selection
+**Versi: v3.0** — 🚀 **GLOBAL INSTALL + AUTO-SOLVE CTF** - Jalankan dari mana saja, 8 fitur baru berbasis writeup nyata
 
 ---
 
@@ -16,29 +16,37 @@ cd SForensicsTools
 chmod +x forestools.sh
 ```
 
-### 2. Install Semua Sekaligus (Otomatis) ⚡
+### 2. Install Global ⚡ (BARU v3.0 — Jalankan dari mana saja!)
+```bash
+./forestools.sh --install-global
+```
+Setelah ini, cukup ketik `forestools` dari direktori mana pun:
+```bash
+forestools image.png --auto
+forestools access.log --log
+forestools --folder ./challenge/
+```
+
+### 3. Install Semua Tools Sistem (Otomatis)
 ```bash
 ./forestools.sh --install
 ```
-Script akan otomatis menginstall semua tools via `apt` atau `brew`, termasuk **stegseek** dan **rockyou.txt**.
+Menginstall: steghide, stegseek, zsteg, foremost, exiftool, tshark, rockyou.txt, fcrackzip, dll.
 
-### 3. Install Manual (Opsional)
+### 4. Install Manual (Opsional)
 
 #### Dependencies Dasar ⚙️
 ```bash
 sudo apt update && sudo apt install -y \
     binwalk libimage-exiftool-perl tesseract-ocr unrar p7zip-full xz-utils \
     python3-pip steghide foremost pngcheck graphicsmagick tshark tcpdump \
-    wireshark-common python3-venv wordlists
+    wireshark-common python3-venv wordlists fcrackzip
 ```
 
-#### Install stegseek (BARU) 🔍
+#### Install stegseek 🔍
 ```bash
-# Download .deb dari GitHub releases
 wget https://github.com/RickdeJager/stegseek/releases/download/v0.6/stegseek_0.6-1.deb
 sudo apt install ./stegseek_0.6-1.deb
-
-# Pastikan rockyou.txt tersedia
 sudo gunzip /usr/share/wordlists/rockyou.txt.gz
 ```
 
@@ -48,25 +56,16 @@ sudo apt install -y ruby ruby-dev
 sudo gem install zsteg
 ```
 
-#### Install outguess 🔍
+#### Install Volatility 3 🧠
 ```bash
-sudo apt install -y build-essential libjpeg-dev
-wget https://github.com/residentgreg/outguess/archive/refs/heads/master.zip -O outguess.zip
-unzip outguess.zip && cd outguess-master
-./configure && make && sudo make install
-cd .. && rm -rf outguess-master outguess.zip
-```
-
-#### Install jpseek/jphs 🖼️
-```bash
-wget https://downloads.sourceforge.net/project/jphs/jphs/jphs-0.9b.tar.gz
-tar -xzf jphs-0.9b.tar.gz && cd jphs-0.9b
-make && sudo make install
-cd .. && rm -rf jphs-0.9b jphs-0.9b.tar.gz
+pip install volatility3
+# atau
+git clone https://github.com/volatilityfoundation/volatility3.git
+cd volatility3 && pip install -e .
 ```
 
 #### Python Dependencies 🐍
-Diinstall **otomatis** saat pertama kali menjalankan `forestools.sh`. Atau manual:
+Diinstall **otomatis** saat pertama kali dijalankan. Atau manual:
 ```bash
 pip install colorama Pillow numpy
 ```
@@ -77,118 +76,84 @@ pip install colorama Pillow numpy
 
 ```
 SForensicsTools/
-└── forestools.sh     ← Satu file ini sudah cukup! Python engine ada di dalamnya.
-```
+└── forestools.sh          ← Satu file ini sudah cukup!
 
-> **Catatan:** v2.0 adalah standalone — hanya butuh satu file `.sh`. Python engine di-embed otomatis saat dijalankan.
+~/.forestools/             ← Data runtime (dibuat otomatis)
+├── venv/                  ← Python venv
+└── engine.py              ← Python engine (auto-generated)
+
+/usr/local/bin/forestools  ← Binary global (setelah --install-global)
+```
 
 ---
 
 ## ▶️ Penggunaan
 
 ```bash
+# Setelah --install-global:
+forestools [FILE(S)] [OPTIONS]
+
+# Atau langsung dari folder download:
 ./forestools.sh [FILE(S)] [OPTIONS]
 ```
 
 ### 📤 Input
 ```bash
-# Satu file
-./forestools.sh challenge.png
-
-# Beberapa file / wildcard
-./forestools.sh *.png
-./forestools.sh secret.jpg data.zip firmware.bin
-
-# Folder rekursif
-./forestools.sh /path/to/challenges/
-
-# Dengan format flag custom
-./forestools.sh -f "picoCTF{" suspicious.png
+forestools challenge.png
+forestools *.png
+forestools secret.jpg data.zip firmware.bin
+forestools /path/to/challenges/
+forestools -f "picoCTF{" suspicious.png
 ```
 
 ### 🤖 Mode Analisis
 ```bash
-./forestools.sh image.png --auto      # Auto-detect semua tools sesuai tipe file
-./forestools.sh image.png --all       # Jalankan SEMUA analisis
-./forestools.sh image.png --quick     # ULTRA-FAST: strings + zsteg + stegseek + early exit
+forestools image.png --auto      # Auto-detect semua tools sesuai tipe file
+forestools image.png --all       # Jalankan SEMUA analisis
+forestools image.png --quick     # ULTRA-FAST: strings + zsteg + stegseek + early exit
+```
+
+### 🗝️ CTF Spesifik (v3.0)
+```bash
+forestools artifact.reg   --reg              # Windows Registry analysis
+forestools access.log     --log              # Web server log analysis
+forestools autorun.inf    --autorun          # Autorun/INF file analysis
+forestools evidence.zip   --zipcrack         # Crack ZIP password otomatis
+forestools chall.raw      --volatility       # Memory forensics (Volatility 3)
+forestools secret.txt     --deobfuscate      # Reverse/ROT13/caesar/atbash/b64
+forestools                --folder ./dir/    # Fake extension scanner
 ```
 
 ### 🔒 Steganografi
 ```bash
-./forestools.sh image.png --lsb        # LSB analysis via zsteg
-./forestools.sh image.jpg --steghide   # Steghide extraction (tanpa password)
-./forestools.sh image.jpg --stegseek   # Stegseek brute-force dengan rockyou.txt  ← BARU
-./forestools.sh image.jpg --outguess   # Outguess extraction (JPEG)
-./forestools.sh image.png --pngcheck   # Validasi struktur PNG
-./forestools.sh image.jpg --jpsteg     # JPEG steganalysis (jpseek/jphs)
-./forestools.sh image.png --foremost   # File carving
-./forestools.sh image.png --exif       # Deep EXIF analysis
-./forestools.sh image.png --stegdetect # Deteksi metode stego yang digunakan
-./forestools.sh image.png --lsbextract # Ekstrak raw LSB bytes
+forestools image.png --lsb        # LSB analysis (zsteg)
+forestools image.jpg --steghide   # Steghide extraction
+forestools image.jpg --stegseek   # Stegseek + rockyou.txt
+forestools image.jpg --outguess   # Outguess (JPEG)
+forestools image.png --pngcheck   # Validasi PNG
+forestools image.jpg --jpsteg     # JPEG steganalysis
+forestools image.png --foremost   # File carving
+forestools image.png --exif       # Deep EXIF analysis
+forestools image.png --stegdetect # Deteksi metode stego
+forestools image.png --lsbextract # Ekstrak raw LSB bytes
+forestools image.png --remap      # Color remapping (8 variants)
+forestools image.png --deep       # Semua 8 bit plane
+forestools img1.png --compare img2.png
 ```
 
-### 🔍 Stegseek (BARU — Rockyou Wordlist)
+### 🔑 Brute Force
 ```bash
-# Default: pakai rockyou.txt otomatis
-./forestools.sh image.jpg --stegseek
-
-# Custom wordlist
-./forestools.sh image.jpg --stegseek --wordlist /path/to/wordlist.txt
-
-# Jalan otomatis di --quick, --auto, dan --all
-./forestools.sh image.jpg --quick
+forestools image.png --bruteforce
+forestools image.png --bruteforce --parallel 10
+forestools image.png --bruteforce --wordlist dict.txt
+forestools image.jpg --stegseek --wordlist rockyou.txt
 ```
 
-**Stegseek** menggunakan rockyou.txt (~14 juta password) dan **jauh lebih cepat** dari brute force manual:
-- Secara otomatis mencari di `/usr/share/wordlists/rockyou.txt`
-- Menampilkan password yang ditemukan
-- Mengekstrak dan scan konten untuk flag
-- Timeout 600 detik untuk file besar
-
-### 🔑 Brute Force (steghide manual)
+### 🌐 Network & Disk
 ```bash
-./forestools.sh image.png --bruteforce                      # Default wordlist
-./forestools.sh image.png --bruteforce --delay 0.05         # Ultra-fast
-./forestools.sh image.png --bruteforce --parallel 10        # 10 threads
-./forestools.sh image.png --bruteforce --wordlist dict.txt  # Custom wordlist
-```
-
-### 🎨 Analisis Gambar Lanjutan
-```bash
-./forestools.sh image.png --remap            # Color remapping (8 variants)
-./forestools.sh image.png --alpha            # Alpha channel analysis
-./forestools.sh image.png --deep             # Semua 8 bit plane
-./forestools.sh img1.png --compare img2.png  # Bandingkan dua gambar
-```
-
-### 🔄 Auto-Decode
-```bash
-./forestools.sh logs.txt --decode    # Auto-decode base64/hex/binary
-./forestools.sh secret.txt --extract # Ekstrak file tersembunyi
-```
-
-### 🌐 Network Forensics (PCAP)
-```bash
-./forestools.sh capture.pcap --pcap  # Full PCAP + attack detection
-```
-
-Deteksi otomatis:
-- Timeline HTTP requests
-- Attack Patterns (SQLi, XSS, LFI/RFI, Command Injection)
-- POST data & credentials
-- Data exfiltration
-- HTTP Objects, DNS Queries, TCP streams
-
-### 💾 Disk Image Analysis
-```bash
-./forestools.sh disk.img --disk     # Fast mode (scan 10MB pertama)
-./forestools.sh forensic.dd --disk  # Format: .dd .img .raw .iso .vmdk .qcow2 .vhd
-```
-
-### 🪟 Windows Event Log
-```bash
-./forestools.sh security.evtx --windows  # Analisis EVTX
-./forestools.sh *.evtx --windows
+forestools capture.pcap --pcap
+forestools disk.img --disk
+forestools security.evtx --windows
 ```
 
 ---
@@ -200,17 +165,21 @@ Deteksi otomatis:
 | `*_bitplanes/` | Bit plane visual (0-7) |
 | `*_channels/` | RGBA channels terpisah |
 | `*_remap/` | Color palette variants |
-| `*_stegseek/` | Stegseek brute-force result ← BARU |
-| `*_zsteg/`, `*_steghide/`, `*_outguess/` | Output steganography tools |
-| `*_foremost/` | File carving results |
-| `*_bruteforce/` | Steghide brute force results |
+| `*_stegseek/` | Stegseek result |
+| `*_steghide/`, `*_outguess/` | Stego extraction |
+| `*_foremost/` | File carving |
+| `*_bruteforce/` | Steghide brute force |
 | `*_decoded_*` | Hasil decode (b64/hex/bin) |
 | `*_http_objects/`, `*_streams/` | PCAP results |
 | `*_disk_analysis/` | Disk image results |
-| `*_event_analysis/` | Windows Event Log results |
 | `*_lsb_raw/` | Raw LSB bytes |
-| `*_compare/` | Image comparison diff |
+| `*_compare/` | Image diff |
 | `*_exif/` | EXIF metadata |
+| `*_registry/` | Registry decode results |
+| `*_log_analysis/` | Log analysis results |
+| `*_autorun/` | Autorun decode results |
+| `*_zipcrack/` | ZIP extracted files |
+| `*_volatility/` | Volatility plugin outputs |
 | `_extracted_*/` | Binwalk extraction |
 | `fixed_*`, `repaired_*` | Header yang diperbaiki |
 
@@ -218,54 +187,20 @@ Deteksi otomatis:
 
 ## ⚡ Perbandingan Performa
 
-| Fitur | v1.x | v2.0 | Peningkatan |
-|-------|------|------|-------------|
-| **Stegseek + rockyou** | ❌ | ✅ `--stegseek` | **Sangat cepat** |
-| **Quick Mode** | ❌ | ✅ `--quick` | **5-10x** lebih cepat |
-| **Brute Force** | Single thread | Parallel threads | **50x** lebih cepat |
-| **Early Exit** | ❌ | ✅ Otomatis | Hemat waktu |
-| **Standalone .sh** | ❌ | ✅ 1 file saja | Lebih simpel |
-| **Auto venv** | ❌ | ✅ Otomatis | Tidak perlu setup |
-| **Disk Mode** | Lambat | Fast (10MB scan) | **3-5x** lebih cepat |
-
----
-
-## 🚀 Cheat Sheet
-
-```bash
-# Analisis dasar
-./forestools.sh file.png
-
-# QUICK MODE — tercepat untuk CTF
-./forestools.sh file.png --quick
-
-# Stegseek dengan rockyou (BARU!)
-./forestools.sh file.jpg --stegseek
-./forestools.sh file.jpg --stegseek --wordlist /usr/share/wordlists/rockyou.txt
-
-# Steganografi lengkap
-./forestools.sh file.png --lsb --deep --alpha
-./forestools.sh file.jpg --steghide
-./forestools.sh file.jpg --outguess
-
-# Brute force steghide manual
-./forestools.sh file.png --bruteforce --parallel 10
-
-# Auto-decode & network
-./forestools.sh logs.txt --decode
-./forestools.sh capture.pcap --pcap
-
-# Disk & Windows forensics
-./forestools.sh disk.img --disk
-./forestools.sh security.evtx --windows
-
-# Full analysis
-./forestools.sh file.png --all
-
-# Install/update
-./forestools.sh --install
-./forestools.sh --update-deps
-```
+| Fitur | v1.x | v2.0 | v3.0 |
+|-------|------|------|------|
+| **Global install** | ❌ | ❌ | ✅ `--install-global` |
+| **Stegseek + rockyou** | ❌ | ✅ | ✅ |
+| **ZIP password crack** | ❌ | ❌ | ✅ `--zipcrack` |
+| **Registry analysis** | ❌ | ❌ | ✅ `--reg` |
+| **Log analysis** | ❌ | ❌ | ✅ `--log` |
+| **Volatility wrapper** | ❌ | ❌ | ✅ `--volatility` |
+| **Deobfuscation engine** | ❌ | ❌ | ✅ `--deobfuscate` |
+| **Fake ext detection** | ❌ | ❌ | ✅ `--folder` |
+| **Quick Mode** | ❌ | ✅ | ✅ |
+| **Parallel brute force** | ❌ | ✅ 5 thread | ✅ 8 thread |
+| **Standalone .sh** | ❌ | ✅ | ✅ |
+| **Auto venv** | ❌ | ✅ `.venv/` | ✅ `~/.forestools/` |
 
 ---
 
@@ -277,128 +212,99 @@ Deteksi otomatis:
 | `Python not found` | `sudo apt install python3` |
 | `stegseek not found` | `./forestools.sh --install` |
 | `rockyou.txt not found` | `sudo apt install wordlists && sudo gunzip /usr/share/wordlists/rockyou.txt.gz` |
-| Dependencies Python error | `./forestools.sh --update-deps` |
-| Venv error | Hapus folder `.venv/` lalu jalankan ulang |
+| `volatility not found` | `pip install volatility3` |
+| `forestools: command not found` | `./forestools.sh --install-global` |
+| Python deps error | `forestools --update-deps` |
+| Venv error | `rm -rf ~/.forestools/venv` lalu jalankan ulang |
 
 ---
 
 ## 💡 Tips & Trik
 
-- 🔍 Gunakan `--stegseek` untuk JPEG yang kemungkinan punya password — rockyou.txt sangat powerful!
-- ✅ Gunakan `--quick` untuk analisis **SUPER CEPAT** saat CTF competition
-- 🎯 **Early exit**: Tool otomatis berhenti saat flag ditemukan
-- ⚡ Stegseek jauh lebih cepat dari `--bruteforce` untuk file JPEG
-- ⚠️ Tools yang tidak terinstall akan dilewati otomatis
-- 🔎 Periksa `*_bitplanes/` dan `*_channels/` jika flag tidak terdeteksi otomatis
-- 🌐 Untuk `.pcap`, `--pcap` ekstrak HTTP objects, DNS, credentials, dan attack patterns
-- 🧪 Coba `--remap` pada gambar dengan noise tinggi — sering menyembunyikan flag di palette!
-- 🪟 Untuk `.evtx`, `--windows` analisis installation, execution, dan persistence evidence
+- ⚡ Gunakan `--quick` untuk analisis super cepat saat kompetisi berlangsung
+- 🎯 **Early exit** otomatis berhenti begitu flag ditemukan
+- 🔍 `--stegseek` jauh lebih cepat dari `--bruteforce` untuk JPEG
+- 🗂️ `--folder` untuk soal yang kasih banyak file — auto-detect fake extension
+- 🧠 `--volatility` auto-dump file menarik dari RAM (flag, tiket, datadiri, dll)
+- 🔤 `--deobfuscate` coba semua metode encode sekaligus — reverse, ROT13, caesar 1-25, atbash, b64, hex
+- 📋 `--reg` decode semua nilai `hex:` di .reg — sering menyembunyikan flag di RunOnce
+- 🌐 `--log` deteksi request 200-OK attacker — flag sering di URL path
+- 🔎 Periksa `*_bitplanes/` jika flag tidak terdeteksi otomatis di gambar
+
+---
+
+## 📋 Changelog
+
+### v3.0 — 2026
+> **Tema: Global Install + Auto-Solve CTF berbasis 11 writeup nyata**
+
+**🆕 Fitur Baru**
+- `--install-global` — Install ke `/usr/local/bin/forestools`, jalankan dari direktori mana saja
+- `--uninstall` — Hapus binary dan data dari sistem
+- `~/.forestools/` — Venv & engine disimpan di home user (bukan folder script), sehingga script bisa dipindah/dipanggil dari mana saja
+- `--reg` — Windows Registry parser: decode semua nilai `hex:` (REG_BINARY) ke UTF-16/UTF-8, scan key Run/RunOnce/UserInit, deobfuscate string values
+- `--log` — Web server log analyzer: IP frequency (attacker detection), HTTP status distribution, attack pattern detection (SQLi/XSS/LFI/traversal/webshell), flag di URL 200-OK, timeline
+- `--autorun` — Autorun/INF file analyzer: baca semua komentar, coba reverse / ROT13 / caesar brute (1-25) / atbash / base64 otomatis
+- `--zipcrack` — ZIP password cracker 4 tahap: (1) tanpa password → (2) password kosong → (3) rockyou.txt parallel 8 thread → (4) fcrackzip
+- `--folder DIR` — Fake extension scanner: baca magic bytes semua file, deteksi mismatch ekstensi, auto-rename & extract ZIP/PDF/image
+- `--volatility` — Volatility 3 auto-pipeline: windows.info → pslist → pstree → cmdline → envars → netscan → filescan → dumpfiles → flag scan
+- `--vol-plugin` — Plugin Volatility tambahan dari user
+- `--deobfuscate` — Deobfuscation engine: reverse, ROT13, atbash, caesar brute (25 shift), base64, hex, reverse+base64
+- Auto fake-extension detection di setiap file yang diproses (cek magic bytes vs ekstensi klaim)
+- `REDLIMIT{...}` ditambahkan ke flag pattern matcher
+- `scan_text_for_flags()` — helper terpusat yang dipakai semua fungsi untuk konsistensi
+
+**🔧 Perbaikan**
+- Argparse `files` dari `nargs="+"` ke `nargs="*"` agar `--folder` bisa jalan tanpa file argument
+- Output folder baru: `*_registry/`, `*_log_analysis/`, `*_autorun/`, `*_zipcrack/`, `*_volatility/`
+- Parallel ZIP brute-force dengan `ThreadPoolExecutor` (8 thread default)
+- README diperbarui dengan tabel peta soal CTF → fitur
+
+---
+
+### v2.0 — 2026
+> **Tema: Standalone .sh + Stegseek + Parallel Brute Force**
+
+**🆕 Fitur Baru**
+- **Standalone** — Python engine di-embed langsung dalam `.sh` via heredoc, tidak perlu `ForesTools.py` terpisah
+- `--stegseek` — Stegseek brute-force dengan rockyou.txt (~14 juta password)
+- `--install` — Auto-install semua tools sistem via apt/brew termasuk stegseek & rockyou
+- `--update-deps` — Reinstall Python dependencies di venv
+- Auto venv di `.venv/` — tidak perlu manual setup Python
+- `--exif` — Deep EXIF metadata analysis via exiftool
+- `--stegdetect` — Deteksi metode stego (LSB ratio, channel variance)
+- `--lsbextract` — Ekstrak raw LSB bytes ke file binary
+- `--compare FILE` — Pixel diff dua gambar
+- Parallel brute-force steghide dengan `ThreadPoolExecutor`
+- Rockyou.txt auto-detect di `/usr/share/wordlists/` dan `/opt/`
+- Banner ASCII art ForesTools
+
+**🔧 Perbaikan**
+- `_tshark()` helper mengurangi duplikasi kode PCAP
+- `_build_result()` untuk return flag/extraction summary per file
+- Early exit otomatis saat flag ditemukan
+- `--quick` mode: strings → zsteg → stegseek → steghide, berhenti di flag pertama
+
+---
+
+### v1.x — 2025
+> **Tema: All-in-one Python forensic tool (AperiSolve style)**
+
+**Fitur Awal**
+- `sfores` / `fores` command sebagai entry point
+- Analisis gambar: bit planes, RGB channels, LSB (zsteg), steghide, outguess, pngcheck, jpseek
+- Header repair otomatis: PNG & JPEG magic bytes
+- File carving: foremost, binwalk
+- Auto-decode: base64, hex, binary
+- PCAP analysis: HTTP objects, DNS, credentials, TCP streams, attack detection, timeline
+- Disk image analysis: strings, file signature scan, compressed disk extract
+- Windows Event Log parser: raw string extraction
+- Brute force steghide dengan default wordlist
+- Strings hunt: UTF-8 + UTF-16 scan untuk flag patterns
+- Flag patterns: `picoCTF{...}`, `CTF{...}`, `flag{...}`, generic `PREFIX{...}`
+- Entropy calculation & scattered flag detection
 
 ---
 
 Dikembangkan oleh **Syaaddd** 👨‍💻 — untuk para pejuang CTF! 🏆🚩  
 [GitHub Repository](https://github.com/Syaaddd/SForensicsTools) 💻✨
-
-
----
-
-## 🆕 v3.0 — Auto-Solve CTF Challenges
-
-ForesTools v3.0 dirancang berdasarkan 11 writeup CTF nyata untuk bisa **auto-mengerjakan soal** forensics umum.
-
-### 🗂️ Peta Soal → Fitur
-
-| Tipe Soal | Command | Teknik |
-|-----------|---------|--------|
-| **Registry Artifact** | `--reg` | Parse .reg, decode hex: values, scan RunOnce/Run keys |
-| **Log Timeline** | `--log` | IP frequency, attack detection, flag di URL path |
-| **USB Autorun** | `--autorun` | Parse .inf, reverse string, ROT13, caesar, base64 |
-| **Corrupted Header** | *(auto)* | Fix magic bytes PNG/JPEG, baca metadata |
-| **Zip Password Crack** | `--zipcrack` | Coba tanpa PW → rockyou.txt → fcrackzip |
-| **Base64 in the Wild** | *(auto)* | Auto-detect & decode base64 di semua file |
-| **Metadata Exposed** | *(auto)* | exiftool flag scan di EXIF/User Comment |
-| **File Signature Magic** | `--folder` | Detect fake extension via magic bytes, auto-extract |
-| **Strings Hunt** | *(auto)* | strings + flag scan otomatis |
-| **Volatility Forensics** | `--volatility` | windows.info/pslist/envars/filescan/dumpfiles |
-| **Stealth Extension** | `--folder` | Deteksi ZIP disamarkan sebagai .jpg, auto-unzip |
-
----
-
-### 🔑 Fitur Baru v3.0
-
-#### `--reg` — Windows Registry Analysis
-```bash
-./forestools.sh artifact.reg --reg
-# Auto: parse semua key, decode hex: values (REG_BINARY),
-#       scan RunOnce/Run/UserInit, deobfuscate string values
-```
-
-#### `--log` — Web Server Log Analysis  
-```bash
-./forestools.sh access.log --log
-# Auto: IP frequency (attacker detection), HTTP status,
-#       attack pattern (SQLi/XSS/LFI/traversal), flag di URL 200-OK
-```
-
-#### `--autorun` — Autorun/INF File Analysis
-```bash
-./forestools.sh autorun.inf --autorun
-# Auto: baca semua komentar, coba reverse/ROT13/caesar/atbash/base64
-```
-
-#### `--zipcrack` — ZIP Password Cracker
-```bash
-./forestools.sh evidence.zip --zipcrack
-./forestools.sh evidence.zip --zipcrack --wordlist custom.txt
-# Step: (1) tanpa password → (2) password kosong → (3) rockyou.txt → (4) fcrackzip
-```
-
-#### `--folder` — Fake Extension Scanner
-```bash
-./forestools.sh --folder ./Stealth_Extension/
-# Auto: baca magic bytes semua file, deteksi mismatch ekstensi,
-#       rename + extract jika ZIP, scan flag di semua file
-```
-
-#### `--volatility` — Memory Forensics
-```bash
-./forestools.sh chall.raw --volatility
-./forestools.sh chall.raw --volatility --vol-plugin windows.cmdline windows.netscan
-# Auto: windows.info → pslist → envars → filescan → dumpfiles (file menarik)
-```
-
-#### `--deobfuscate` — Deobfuscation Engine
-```bash
-./forestools.sh secret.txt --deobfuscate
-# Coba: reverse, ROT13, atbash, caesar (1-25), base64, hex, reverse+b64
-```
-
----
-
-### ⚡ Quick Cheat Sheet v3.0
-
-```bash
-# Soal registry  → decode hex values
-./forestools.sh artifact.reg --reg
-
-# Soal log       → temukan flag di URL / attacker activity  
-./forestools.sh access.log --log
-
-# Soal autorun   → reverse/ROT13/caesar di komentar .inf
-./forestools.sh autorun.inf --autorun
-
-# Soal ZIP pw    → crack otomatis
-./forestools.sh evidence.zip --zipcrack
-
-# Soal fake ext  → scan folder, detect ZIP-as-JPG dll
-./forestools.sh --folder ./challenge_dir/
-
-# Soal memory    → volatility3 auto pipeline
-./forestools.sh memory.raw --volatility
-
-# Soal obfuscasi → semua metode decode sekaligus
-./forestools.sh file.txt --deobfuscate
-
-# Tidak tahu soal apa → auto mode (paling lengkap)
-./forestools.sh * --auto
-```
