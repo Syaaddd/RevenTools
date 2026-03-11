@@ -5,6 +5,7 @@
 **Smart Multi-Category CTF Automation Toolkit**
 
 [![Version](https://img.shields.io/badge/version-v4.0-blue?style=for-the-badge&logo=github)](https://github.com/Syaaddd/raven-ctf)
+
 [![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](LICENSE)
 [![Shell](https://img.shields.io/badge/shell-bash-orange?style=for-the-badge&logo=gnu-bash)](https://www.gnu.org/software/bash/)
 [![Python](https://img.shields.io/badge/python-3.8%2B-yellow?style=for-the-badge&logo=python)](https://www.python.org/)
@@ -14,6 +15,8 @@
 *Alat otomatis untuk semua kategori CTF — forensics, steganografi, cryptography, network, memory forensics, dan deteksi flag* 🚩
 
 [🇮🇩 Bahasa Indonesia](#bahasa-indonesia) · [🇺🇸 English](#english) · [📦 Install](#-instalasi) · [▶️ Usage](#%EF%B8%8F-penggunaan) · [🆕 Changelog](#-changelog)
+
+
 
 </div>
 
@@ -31,12 +34,11 @@ RAVEN adalah toolkit CTF berbasis Bash + Python yang dirancang untuk mempercepat
 |----------|-------|
 | 🖼️ Steganografi | zsteg, steghide, stegseek, outguess, LSB |
 | 🔬 Forensics | foremost, binwalk, exiftool, pngcheck |
-| 🌐 Network | tshark, PCAP analysis, HTTP objects |
-| 🧠 Memory | Volatility 3 pipeline |
-| 🔒 Cryptography | ROT13, Caesar, Atbash, Base64, Hex |
-| 📁 Disk | Disk image, Event Log, Registry |
-| 🤖 AI | Claude API hint (v4.0 NEW) |
-| 📊 Report | Auto HTML/PDF report generator (v4.0 NEW) |
+| 🌐 Network | tshark, PCAP analysis, HTTP objects, DNS tunneling |
+| 🧠 Memory | Volatility 3 pipeline, advanced memory analysis |
+| 🔒 Cryptography | RSA attacks, Vigenere, XOR KPA, Caesar, Atbash, Encoding Chain |
+| 📁 Disk | Disk image, NTFS recovery, Partition scan, Event Log, Registry |
+| 🔎 Deobfuscate | ROT13, Caesar brute (1-25), Atbash, Base64, Hex, reverse |
 
 ---
 
@@ -60,28 +62,13 @@ raven access.log --log
 raven --folder ./challenge/
 ```
 
-### 3. Install via Docker 🐳 (v4.0 NEW)
-```bash
-docker pull syaaddd/raven-ctf:latest
-
-# Jalankan dengan bind mount ke folder challenge
-docker run --rm -v $(pwd):/data syaaddd/raven-ctf image.png --auto
-docker run --rm -v $(pwd):/data syaaddd/raven-ctf --folder /data/challenges/
-```
-
-Atau build sendiri:
-```bash
-docker build -t raven-ctf .
-docker run --rm -v $(pwd):/data raven-ctf challenge.png --all
-```
-
-### 4. Install Semua Tools Sistem (Otomatis)
+### 3. Install Semua Tools Sistem (Otomatis)
 ```bash
 ./raven.sh --install
 ```
 Menginstall: steghide, stegseek, zsteg, foremost, exiftool, tshark, rockyou.txt, fcrackzip, dll.
 
-### 5. Install Manual (Opsional)
+### 4. Install Manual (Opsional)
 
 #### Dependencies Dasar ⚙️
 ```bash
@@ -124,14 +111,11 @@ pip install colorama Pillow numpy requests
 
 ```
 raven-ctf/
-├── raven.sh            ← Satu file ini sudah cukup!
-├── Dockerfile          ← Docker support (v4.0)
-└── docker-compose.yml  ← Docker Compose (v4.0)
+└── raven.sh            ← Satu file ini sudah cukup!
 
 ~/.raven/               ← Data runtime (dibuat otomatis)
 ├── venv/               ← Python venv
-├── engine.py           ← Python engine (auto-generated)
-└── reports/            ← HTML/PDF reports (v4.0)
+└── engine.py           ← Python engine (auto-generated)
 
 /usr/local/bin/raven    ← Binary global (setelah --install-global)
 ```
@@ -166,41 +150,34 @@ raven image.png --quick     # ULTRA-FAST: strings + zsteg + stegseek + early exi
 
 ### 🆕 v4.0 — Fitur Baru
 
-#### 🤖 AI-Powered Flag Hint (Claude API)
+#### 🔒 Cryptography Engine (v4.0)
 ```bash
-# Setup API key sekali saja
-export ANTHROPIC_API_KEY="sk-ant-..."
-
-# Minta hint dari AI berdasarkan hasil analisis
-raven image.png --ai-hint
-raven dump.raw --volatility --ai-hint
-raven capture.pcap --pcap --ai-hint
-```
-> AI akan membaca output analisis dan memberikan hint langkah selanjutnya yang relevan berdasarkan pattern CTF nyata.
-
-#### 🐳 Docker Support
-```bash
-raven --docker-run image.png --auto
-# Otomatis jalankan dalam container terisolasi
+raven chall.txt --crypto                # Auto-attack semua: RSA, Vigenere, XOR, Classic, Chain
+raven rsa_chall.txt --crypto --rsa      # Fokus RSA attacks (weak prime, Fermat, Common-Modulus, Bellcore)
+raven cipher.txt --crypto --vigenere    # Vigenere + akrostik key finder
+raven secret.txt --classic              # Atbash + Caesar brute (1-25)
+raven enc.bin --xor-plain "CTF{"        # XOR KPA dengan known-plaintext prefix
+raven enc.bin --xor-key "DARKSIDE"      # XOR decrypt manual dengan key
+raven encoded.txt --encoding-chain      # Multi-stage decode (Base32→Binary→BitRev→B64)
 ```
 
-#### 📊 Auto-Report Generator
+#### 🧠 Advanced Memory Analysis
 ```bash
-raven image.png --all --report          # Generate HTML report
-raven image.png --all --report --pdf    # Generate PDF report
-raven --folder ./challs/ --report       # Report untuk seluruh folder
-
-# Output: ~/.raven/reports/raven_report_<timestamp>.html
+raven dump.raw --volatility             # Volatility 3 auto-pipeline standar
+raven dump.raw --memory                 # Advanced: malfind + process dump + anomaly detection
 ```
-> Report berisi: ringkasan flag ditemukan, tools yang dijalankan, output lengkap per tool, dan screenshot bit-plane.
 
-#### 🖥️ Web UI / Dashboard Lokal
+#### 💽 Advanced Disk Forensics
 ```bash
-raven --webui           # Buka dashboard di http://localhost:7734
-raven --webui --port 8080
+raven disk.img --ntfs                   # NTFS deleted file recovery (fls/icat/strings/carving)
+raven disk.img --partition              # Partition table analysis (MBR/GPT, hidden partition scan)
 ```
-> Dashboard menampilkan: drag-drop file upload, progress analisis real-time, hasil flag, dan history challenge.
 
+#### 🌐 DNS Tunneling Detector
+```bash
+raven capture.pcap --pcap              # PCAP analysis standard
+raven capture.pcap --dns-tunnel        # DNS tunneling detector + Base32/64/hex chunk decoder
+```
 ### 🗝️ CTF Spesifik (v3.0+)
 ```bash
 raven artifact.reg   --reg              # Windows Registry analysis
@@ -239,9 +216,12 @@ raven image.jpg --stegseek --wordlist rockyou.txt
 
 ### 🌐 Network & Disk
 ```bash
-raven capture.pcap --pcap
-raven disk.img --disk
-raven security.evtx --windows
+raven capture.pcap --pcap              # PCAP analysis + attack detection
+raven capture.pcap --dns-tunnel        # DNS tunneling detector
+raven disk.img --disk                  # Disk image analysis
+raven disk.img --ntfs                  # NTFS deleted file recovery
+raven disk.img --partition             # Partition table analysis (MBR/GPT)
+raven security.evtx --windows         # Windows Event Log forensics
 ```
 
 ---
@@ -270,7 +250,10 @@ raven security.evtx --windows
 | `*_volatility/` | Volatility plugin outputs |
 | `_extracted_*/` | Binwalk extraction |
 | `fixed_*`, `repaired_*` | Header yang diperbaiki |
-| `~/.raven/reports/` | **HTML/PDF reports (v4.0)** |
+| `*_ntfs/` | NTFS deleted file recovery |
+| `*_partitions/` | Partition scan results |
+| `*_dns_tunnel/` | DNS tunneling decoded chunks |
+| `*_crypto/` | Crypto attack results |
 
 ---
 
@@ -279,10 +262,11 @@ raven security.evtx --windows
 | Fitur | v1.x | v2.0 | v3.0 | v4.0 |
 |-------|------|------|------|------|
 | **Global install** | ❌ | ❌ | ✅ | ✅ |
-| **Docker support** | ❌ | ❌ | ❌ | ✅ `--docker-run` |
-| **AI flag hint** | ❌ | ❌ | ❌ | ✅ `--ai-hint` |
-| **Web UI dashboard** | ❌ | ❌ | ❌ | ✅ `--webui` |
-| **Auto HTML/PDF report** | ❌ | ❌ | ❌ | ✅ `--report` |
+| **Crypto engine (RSA/Vigenere/XOR)** | ❌ | ❌ | ❌ | ✅ `--crypto` |
+| **Advanced memory analysis** | ❌ | ❌ | ❌ | ✅ `--memory` |
+| **NTFS deleted file recovery** | ❌ | ❌ | ❌ | ✅ `--ntfs` |
+| **Partition table scan** | ❌ | ❌ | ❌ | ✅ `--partition` |
+| **DNS tunneling detector** | ❌ | ❌ | ❌ | ✅ `--dns-tunnel` |
 | **Stegseek + rockyou** | ❌ | ✅ | ✅ | ✅ |
 | **ZIP password crack** | ❌ | ❌ | ✅ | ✅ |
 | **Registry analysis** | ❌ | ❌ | ✅ | ✅ |
@@ -291,7 +275,7 @@ raven security.evtx --windows
 | **Deobfuscation engine** | ❌ | ❌ | ✅ | ✅ |
 | **Fake ext detection** | ❌ | ❌ | ✅ | ✅ |
 | **Quick Mode** | ❌ | ✅ | ✅ | ✅ |
-| **Parallel brute force** | ❌ | ✅ 5t | ✅ 8t | ✅ 16t |
+| **Parallel brute force** | ❌ | ✅ 5t | ✅ 5t | ✅ 5t |
 | **Standalone .sh** | ❌ | ✅ | ✅ | ✅ |
 
 ---
@@ -308,9 +292,6 @@ raven security.evtx --windows
 | `raven: command not found` | `./raven.sh --install-global` |
 | Python deps error | `raven --update-deps` |
 | Venv error | `rm -rf ~/.raven/venv` lalu jalankan ulang |
-| `--ai-hint` not working | Pastikan `ANTHROPIC_API_KEY` sudah di-export |
-| Docker error | `docker pull syaaddd/raven-ctf:latest` |
-| Web UI port conflict | `raven --webui --port 8888` |
 
 ---
 
@@ -318,17 +299,17 @@ raven security.evtx --windows
 
 - ⚡ Gunakan `--quick` untuk analisis super cepat saat kompetisi berlangsung
 - 🎯 **Early exit** otomatis berhenti begitu flag ditemukan
-- 🤖 `--ai-hint` memberikan saran langkah berikutnya berbasis AI — ideal saat stuck
-- 📊 `--report --pdf` untuk dokumentasi writeup yang rapi setelah solve
-- 🐳 Gunakan Docker untuk environment bersih tanpa install tools di host
+- 🔒 `--crypto` untuk otomatis menyerang semua jenis enkripsi sekaligus — RSA, Vigenere, XOR, Caesar
+- 💡 `--xor-plain` powerful untuk soal yang tahu prefix flag-nya (e.g. `--xor-plain "picoCTF{"`)
 - 🔍 `--stegseek` jauh lebih cepat dari `--bruteforce` untuk JPEG
 - 🗂️ `--folder` untuk soal yang kasih banyak file — auto-detect fake extension
-- 🧠 `--volatility` auto-dump file menarik dari RAM (flag, tiket, data diri, dll)
+- 🧠 `--volatility` untuk pipeline standar; `--memory` untuk analisis lebih dalam (malfind, dump)
+- 💽 `--ntfs` untuk recover file yang dihapus dari disk image NTFS
+- 🌐 `--dns-tunnel` deteksi dan decode data tersembunyi dalam query DNS
 - 🔤 `--deobfuscate` coba semua metode encode sekaligus — reverse, ROT13, caesar 1-25, atbash, b64, hex
 - 📋 `--reg` decode semua nilai `hex:` di `.reg` — sering menyembunyikan flag di RunOnce
 - 🌐 `--log` deteksi request 200-OK attacker — flag sering di URL path
 - 🔎 Periksa `*_bitplanes/` jika flag tidak terdeteksi otomatis di gambar
-- 🌐 Buka `--webui` untuk monitoring challenge banyak secara visual
 
 ---
 
@@ -348,23 +329,23 @@ cd raven-ctf && chmod +x raven.sh
 raven challenge.png --auto    # Analyze your first challenge
 ```
 
-### Docker
-```bash
-docker pull syaaddd/raven-ctf:latest
-docker run --rm -v $(pwd):/data syaaddd/raven-ctf image.png --auto
-```
-
 ### Key Features (v4.0)
 
 | Feature | Command | Description |
 |---------|---------|-------------|
-| 🤖 AI Hint | `--ai-hint` | Claude AI suggests next steps based on analysis output |
-| 🐳 Docker | `--docker-run` | Run in isolated container |
-| 📊 Report | `--report [--pdf]` | Auto-generate HTML or PDF report |
-| 🖥️ Web UI | `--webui` | Local dashboard at `localhost:7734` |
+| 🔒 Crypto Engine | `--crypto` | RSA attacks (weak/Fermat/CommonMod/Bellcore), Vigenere+acrostic, XOR KPA, Classic Cipher, Encoding Chain |
+| 🔑 RSA Attack | `--rsa` | Force RSA-only attack (use with `--crypto`) |
+| 🔤 Vigenere | `--vigenere` | Vigenere analysis + acrostic key finder |
+| ⊕ XOR KPA | `--xor-plain STR` | Known-plaintext XOR attack |
+| 📝 Classic Cipher | `--classic` | Atbash + Caesar brute force (1-25) |
+| 🔗 Encoding Chain | `--encoding-chain` | Multi-stage decoder (Base32/64/Binary/BitRev/Hex) |
+| 🧠 Adv. Memory | `--memory` | Advanced Volatility: malfind, process dump, anomaly detection |
+| 💽 NTFS Recovery | `--ntfs` | NTFS deleted file recovery (fls/icat/strings) |
+| 🗂️ Partition Scan | `--partition` | MBR/GPT partition analysis + hidden partition scan |
+| 🌐 DNS Tunnel | `--dns-tunnel` | DNS tunneling detector + Base32/64/hex chunk decoder |
 | 🔍 Stegseek | `--stegseek` | Brute-force steghide with rockyou.txt |
 | 🧠 Memory | `--volatility` | Volatility 3 auto-pipeline |
-| 🔑 Deobfuscate | `--deobfuscate` | ROT13, Caesar, Atbash, Base64, Hex |
+| 🔑 Deobfuscate | `--deobfuscate` | ROT13, Caesar, Atbash, Base64, Hex, reverse |
 | 📁 Fake Ext | `--folder` | Detect and fix mismatched file extensions |
 | 📋 Registry | `--reg` | Windows registry hex decoder |
 | 🌐 Log | `--log` | Web server log attacker detection |
@@ -372,8 +353,7 @@ docker run --rm -v $(pwd):/data syaaddd/raven-ctf image.png --auto
 ### Environment Variables
 
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."   # Required for --ai-hint
-export RAVEN_THREADS=16                  # Brute force thread count (default: 8)
+export RAVEN_THREADS=5                   # Brute force thread count (default: 5)
 export RAVEN_WORDLIST="/path/to/list"    # Custom wordlist path
 ```
 
@@ -382,24 +362,27 @@ export RAVEN_WORDLIST="/path/to/list"    # Custom wordlist path
 ## 📋 Changelog
 
 ### v4.0 — 2026
-> **Theme: AI Integration + Docker + Web UI + Auto-Report**
+> **Theme: Crypto Engine + Advanced Disk & Memory Forensics**
 
 **🆕 New Features**
-- `--ai-hint` — Claude AI integration: reads analysis output and suggests next steps based on real CTF patterns. Requires `ANTHROPIC_API_KEY`.
-- `--docker-run` — Run RAVEN in an isolated Docker container. Full Docker image available at `syaaddd/raven-ctf:latest`.
-- `--webui [--port N]` — Local web dashboard at `http://localhost:7734`. Features: drag-drop upload, real-time progress, flag history, multi-file queue.
-- `--report` — Auto-generate HTML report summarizing flags found, tools run, full output per tool, and bit-plane screenshots.
-- `--report --pdf` — Export report as PDF (requires `weasyprint`).
-- `Dockerfile` + `docker-compose.yml` added to repository.
-- Parallel brute-force upgraded to 16 threads default (from 8).
-- `RAVEN_THREADS` and `RAVEN_WORDLIST` environment variable support.
+- `--crypto` — Full cryptography engine: auto-detect & attack RSA (weak prime/Fermat/Common-Modulus/Bellcore-CRT), Vigenere+acrostic key finder, XOR KPA, Classic Cipher (Atbash/Caesar brute), and multi-stage Encoding Chain decoder.
+- `--rsa` — Force RSA-only attack mode (use with `--crypto`).
+- `--vigenere` — Force Vigenere analysis with acrostic key finder.
+- `--classic` — Atbash + Caesar brute force (1-25 shifts).
+- `--xor-plain STR` — Known-plaintext XOR attack (default prefix: `CTF{`).
+- `--xor-key STR` — Direct XOR decrypt with a given key.
+- `--crypto-key STR` — Manual key for Vigenere/Caesar.
+- `--encoding-chain` — Multi-stage encoding decoder: Base32 → Binary → BitRev → Base64 → Hex, and combinations.
+- `--memory` — Advanced Volatility analysis: malfind, process dump, anomaly detection.
+- `--ntfs` — NTFS deleted file recovery using `fls`/`icat`/strings/carving.
+- `--partition` — Partition table analysis (MBR/GPT), mount partitions, scan for hidden data.
+- `--dns-tunnel` — DNS tunneling detector: Base32/64/hex chunk decoder from DNS query data.
 
 **🔧 Fixes & Improvements**
-- `~/.raven/reports/` directory for persistent report storage.
-- `requests` added to Python dependencies for AI API calls.
-- Better error messages when `ANTHROPIC_API_KEY` is not set.
-- README fully bilingual (Bahasa Indonesia + English).
-- Added shields.io badges for version, license, platform.
+- Banner updated to show v4.0.
+- `REDLIMIT{...}` added to flag pattern matcher.
+- Deobfuscate engine extended with XOR brute support.
+- Improved PCAP analysis with DNS tunneling path.
 
 ---
 
@@ -413,11 +396,10 @@ export RAVEN_WORDLIST="/path/to/list"    # Custom wordlist path
 - `--reg` — Windows Registry parser: decode all `hex:` values (REG_BINARY) to UTF-16/UTF-8, scan Run/RunOnce/UserInit keys.
 - `--log` — Web server log analyzer: IP frequency, HTTP status, attack pattern detection (SQLi/XSS/LFI), flag in 200-OK URLs.
 - `--autorun` — Autorun/INF analyzer: reverse / ROT13 / Caesar brute / Atbash / Base64.
-- `--zipcrack` — ZIP password cracker: no-password → empty → rockyou.txt (8 threads) → fcrackzip.
+- `--zipcrack` — ZIP password cracker: no-password → empty → rockyou.txt → fcrackzip.
 - `--folder DIR` — Fake extension scanner: read magic bytes, detect mismatch, auto-rename and extract.
 - `--volatility` — Volatility 3 auto-pipeline: windows.info → pslist → pstree → cmdline → envars → netscan → filescan → dumpfiles → flag scan.
 - `--deobfuscate` — Deobfuscation engine: reverse, ROT13, Atbash, Caesar brute (25 shifts), Base64, Hex, reverse+Base64.
-- `REDLIMIT{...}` added to flag pattern matcher.
 
 ---
 
