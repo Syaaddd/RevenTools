@@ -329,6 +329,8 @@ FLAG_FOUND       = False
 FLAG_LOCK        = Lock()
 flag_summary     = []
 base64_collector = []
+found_flags_set  = set()   # deduplikasi flag, cegah print berulang
+tool_log         = []      # log setiap tool yang dijalankan: (tool, status, hasil)
 
 DEFAULT_WORDLIST = [
     "password","123456","12345678","123456789","flag","ctf","steg","hack","test",
@@ -422,8 +424,17 @@ def check_tool_availability():
     return AVAILABLE_TOOLS
 
 def reset_globals():
-    global flag_summary, base64_collector, FLAG_FOUND
+    global flag_summary, base64_collector, FLAG_FOUND, found_flags_set, tool_log
     flag_summary=[]; base64_collector=[]; FLAG_FOUND=False
+    found_flags_set=set(); tool_log=[]
+
+def log_tool(tool_name, status, result=""):
+    """Catat tool yang dijalankan beserta statusnya"""
+    tool_log.append({
+        "tool":   tool_name,
+        "status": status,   # "✅ Found" | "⬜ Nothing" | "⏭ Skipped" | "❌ Error"
+        "result": result,
+    })
 
 def check_early_exit(): return FLAG_FOUND
 
@@ -437,7 +448,6 @@ def add_to_summary(category, content):
         flag_summary.append(entry)
     if "FLAG" in category:
         signal_flag_found()
-        print(f"{Fore.GREEN}[EARLY EXIT] Flag ditemukan!{Style.RESET_ALL}")
 
 def calculate_entropy(data):
     if not data: return 0.0
@@ -470,6 +480,7 @@ def detect_file_extension(header):
     return 'bin'
 
 def collect_base64_from_text(text):
+    global found_flags_set
     for m in re.findall(r'[A-Za-z0-9+/]{12,}=*', text):
         decoded=decode_base64(m)
         if decoded:
@@ -479,7 +490,15 @@ def collect_base64_from_text(text):
                 add_to_summary("B64-COLLECTOR",decoded)
                 for pat in COMMON_FLAG_PATTERNS:
                     for fm in re.findall(pat,decoded,re.IGNORECASE):
-                        add_to_summary("B64-FLAG",fm)
+                        fm_clean = fm.strip()
+                        add_to_summary("B64-FLAG",fm_clean)
+                        if fm_clean not in found_flags_set:
+                            found_flags_set.add(fm_clean)
+                            print(f"\n{Fore.GREEN}{'─'*50}")
+                            print(f"  🚩 FLAG dari Base64!")
+                            print(f"  {Fore.YELLOW}{fm_clean}{Style.RESET_ALL}")
+                            print(f"{Fore.GREEN}  Raw B64: {m[:60]}...{Style.RESET_ALL}")
+                            print(f"{Fore.GREEN}{'─'*50}{Style.RESET_ALL}\n")
 
 def detect_scattered_flag(raw_data):
     try:
@@ -490,14 +509,23 @@ def detect_scattered_flag(raw_data):
     except: pass
 
 def scan_text_for_flags(text, source=""):
-    """Scan teks apapun untuk flag patterns"""
+    """Scan teks apapun untuk flag patterns — dedup ketat"""
+    global found_flags_set
     found=[]
     for pat in COMMON_FLAG_PATTERNS:
         for m in re.findall(pat,text,re.IGNORECASE):
-            found.append(m)
+            m_clean = m.strip()
             label = f"FLAG-{source}" if source else "AUTO-FLAG"
-            add_to_summary(label,m)
-            print(f"{Fore.GREEN}[🚩] FLAG ditemukan: {m}{Style.RESET_ALL}")
+            add_to_summary(label, m_clean)
+            # Print hanya sekali per flag unik
+            if m_clean not in found_flags_set:
+                found_flags_set.add(m_clean)
+                found.append(m_clean)
+                print(f"\n{Fore.GREEN}{'─'*50}")
+                print(f"  🚩 FLAG DITEMUKAN!")
+                print(f"  {Fore.YELLOW}{m_clean}{Style.RESET_ALL}")
+                print(f"{Fore.GREEN}  Sumber : {source or 'auto'}{Style.RESET_ALL}")
+                print(f"{Fore.GREEN}{'─'*50}{Style.RESET_ALL}\n")
     collect_base64_from_text(text)
     return found
 
@@ -663,6 +691,9 @@ def analyze_registry(filepath):
         if len(val) > 6:
             analyze_deobfuscation(val, "REGISTRY-STRING")
 
+    new_flags = list(found_flags_set)
+    log_tool("registry-parser", "✅ Found" if new_flags else "⬜ Nothing",
+             ", ".join(new_flags) if new_flags else f"parsed {filepath.name}")
     add_to_summary("REGISTRY-ANALYZED", f"Parsed '{filepath.name}'")
     print(f"{Fore.GREEN}[REGISTRY] Selesai. Output: {out_dir.name}{Style.RESET_ALL}")
 
@@ -768,6 +799,9 @@ def analyze_log(filepath):
         f"IPs: {len(ip_counts)}\n"
         f"Flags: {flags_found}\n")
 
+    new_flags = list(found_flags_set)
+    log_tool("log-analyzer", "✅ Found" if new_flags else "⬜ Nothing",
+             ", ".join(new_flags) if new_flags else f"{len(lines)} lines analyzed, no flag")
     add_to_summary("LOG-ANALYZED", f"Parsed '{filepath.name}' ({len(lines)} lines)")
     print(f"{Fore.GREEN}[LOG] Selesai. Output: {out_dir.name}{Style.RESET_ALL}")
 
@@ -845,6 +879,9 @@ def analyze_autorun(filepath):
         print(f"{Fore.CYAN}[AUTORUN] Hash/checksum: {m}{Style.RESET_ALL}")
         add_to_summary("AUTORUN-HASH", m)
 
+    new_flags = list(found_flags_set)
+    log_tool("autorun-parser", "✅ Found" if new_flags else "⬜ Nothing",
+             ", ".join(new_flags) if new_flags else "tidak ada flag/encoding tersembunyi")
     add_to_summary("AUTORUN-ANALYZED", f"Parsed '{filepath.name}'")
     print(f"{Fore.GREEN}[AUTORUN] Selesai.{Style.RESET_ALL}")
 
@@ -938,6 +975,7 @@ def crack_zip(filepath, wordlist_path=None):
 
     if not found_pw:
         print(f"{Fore.YELLOW}[ZIP-CRACK] Password tidak ditemukan dalam wordlist.{Style.RESET_ALL}")
+        log_tool("zipcrack", "⬜ Nothing", "password tidak ditemukan dalam wordlist")
 
 def _scan_extracted_dir(out_dir, source):
     """Scan semua file yang diekstrak untuk flag"""
@@ -1190,6 +1228,9 @@ def analyze_volatility(filepath, vol_args=None):
         for arg in vol_args:
             run_vol(arg, label=arg.replace('.','_').replace(' ','_'))
 
+    new_flags = list(found_flags_set)
+    log_tool("volatility", "✅ Found" if new_flags else "⬜ Analyzed",
+             ", ".join(new_flags) if new_flags else f"output: {out_dir.name}")
     add_to_summary("VOLATILITY-DONE", f"Output: '{out_dir.name}'")
     print(f"{Fore.GREEN}[VOLATILITY] Selesai. Output: {out_dir.name}{Style.RESET_ALL}")
 
@@ -1200,6 +1241,7 @@ def analyze_volatility(filepath, vol_args=None):
 # ── Header Repair ────────────────────────────
 
 def fix_header(filepath):
+    log_tool("header-check", "running")
     try:
         with open(filepath,'rb') as f:
             header=f.read(64); full_data=header+f.read()
@@ -1227,6 +1269,8 @@ def fix_header(filepath):
             add_to_summary("REPAIR",f"PNG via IHDR → {fixed.name}"); return fixed
     except Exception as e:
         print(f"{Fore.RED}[!] Header repair gagal: {e}{Style.RESET_ALL}")
+        log_tool("header-check", "❌ Error", str(e))
+    log_tool("header-check", "⬜ OK", "signature normal / diperbaiki")
     return filepath
 
 # ── Auto Decode ──────────────────────────────
@@ -1239,6 +1283,8 @@ def analyze_extracted_file(filepath):
 
 def auto_decode_and_extract(filepath):
     if check_early_exit(): return
+    log_tool("auto-decode", "running")
+    found_before = len(found_flags_set)
     print(f"{Fore.CYAN}[AUTO-DECODE] Memeriksa encoded data...{Style.RESET_ALL}")
     try:
         raw=filepath.read_bytes()
@@ -1281,12 +1327,18 @@ def auto_decode_and_extract(filepath):
             except: continue
         if extracted: print(f"{Fore.CYAN}[+] Total extracted: {len(extracted)}{Style.RESET_ALL}")
         else: print(f"{Fore.YELLOW}[!] Tidak ada encoded data ditemukan{Style.RESET_ALL}")
+        new_flags = list(found_flags_set)[found_before:]
+        log_tool("auto-decode", "✅ Found" if new_flags else "⬜ Nothing",
+                 ", ".join(new_flags) if new_flags else f"{len(extracted)} file(s) decoded" if extracted else "tidak ada encoded data")
     except Exception as e:
         print(f"{Fore.RED}[!] Auto-decode gagal: {e}{Style.RESET_ALL}")
+        log_tool("auto-decode", "❌ Error", str(e))
 
 # ── Strings & Flags ──────────────────────────
 
 def analyze_strings_and_flags(filepath, custom_format=None):
+    log_tool("strings", "running")
+    found_before = len(found_flags_set)
     try:
         ft=subprocess.getoutput(f"file -b '{filepath}'").strip()
         print(f"{Fore.CYAN}[BASIC] Type: {ft}{Style.RESET_ALL}")
@@ -1300,8 +1352,12 @@ def analyze_strings_and_flags(filepath, custom_format=None):
             pat=esc.replace(r'\{',r'\{[^}]*\}') if esc.endswith(r'\{') else esc
             for m in re.findall(pat,combined,re.IGNORECASE):
                 add_to_summary("CUSTOM-FLAG",m)
+        new_flags = list(found_flags_set)[found_before:]
+        log_tool("strings", "✅ Found" if new_flags else "⬜ Nothing",
+                 f"{len(new_flags)} flag(s)" if new_flags else "tidak ada flag")
     except Exception as e:
         print(f"{Fore.RED}[!] String analysis gagal: {e}{Style.RESET_ALL}")
+        log_tool("strings", "❌ Error", str(e))
 
 # ── Image Analysis ───────────────────────────
 
@@ -1415,6 +1471,8 @@ def color_remapping(filepath):
 
 def analyze_with_binwalk(filepath):
     if check_early_exit(): return
+    log_tool("binwalk", "running")
+    found_before = len(found_flags_set)
     out_dir=filepath.parent/f"_extracted_{filepath.name}"
     try:
         subprocess.run(["binwalk","-eM","--quiet",f"--directory={out_dir}",str(filepath)],
@@ -1423,26 +1481,48 @@ def analyze_with_binwalk(filepath):
             print(f"{Fore.GREEN}[BINWALK] Ekstraksi: {out_dir.name}{Style.RESET_ALL}")
             for nested in out_dir.rglob("*"):
                 if nested.is_file(): analyze_strings_and_flags(nested)
-    except FileNotFoundError: print(f"{Fore.YELLOW}[BINWALK] Tidak terinstall.{Style.RESET_ALL}")
-    except Exception as e: print(f"{Fore.RED}[BINWALK] Gagal: {e}{Style.RESET_ALL}")
+            new_flags = list(found_flags_set)[found_before:]
+            log_tool("binwalk", "✅ Found" if new_flags else "⬜ Extracted",
+                     ", ".join(new_flags) if new_flags else f"output: {out_dir.name}")
+        else:
+            log_tool("binwalk", "⬜ Nothing", "tidak ada embedded file")
+    except FileNotFoundError:
+        print(f"{Fore.YELLOW}[BINWALK] Tidak terinstall.{Style.RESET_ALL}")
+        log_tool("binwalk", "⏭ Skipped", "tidak terinstall")
+    except Exception as e:
+        print(f"{Fore.RED}[BINWALK] Gagal: {e}{Style.RESET_ALL}")
+        log_tool("binwalk", "❌ Error", str(e))
 
 def analyze_zsteg(filepath):
-    if not AVAILABLE_TOOLS.get('zsteg'): return
+    if not AVAILABLE_TOOLS.get('zsteg'):
+        log_tool("zsteg", "⏭ Skipped", "tidak terinstall"); return
     if check_early_exit(): return
     print(f"{Fore.GREEN}[ZSTEG] Full LSB analysis...{Style.RESET_ALL}")
+    log_tool("zsteg", "running")
+    found_before = len(found_flags_set)
     try:
         result=subprocess.run(["zsteg","-a",str(filepath)],capture_output=True,text=True,timeout=60)
         output=result.stdout+result.stderr
         print(output[:2000] if len(output)>2000 else output)
         collect_base64_from_text(output)
         scan_text_for_flags(output, "ZSTEG")
-    except subprocess.TimeoutExpired: print(f"{Fore.RED}[ZSTEG] Timeout.{Style.RESET_ALL}")
-    except Exception as e: print(f"{Fore.RED}[ZSTEG] Gagal: {e}{Style.RESET_ALL}")
+        new_flags = list(found_flags_set)[found_before:]
+        log_tool("zsteg", "✅ Found" if new_flags else "⬜ Nothing",
+                 ", ".join(new_flags) if new_flags else "tidak ada data tersembunyi")
+    except subprocess.TimeoutExpired:
+        print(f"{Fore.RED}[ZSTEG] Timeout.{Style.RESET_ALL}")
+        log_tool("zsteg", "❌ Error", "timeout 60s")
+    except Exception as e:
+        print(f"{Fore.RED}[ZSTEG] Gagal: {e}{Style.RESET_ALL}")
+        log_tool("zsteg", "❌ Error", str(e))
 
 def analyze_steghide(filepath, password=None):
-    if not AVAILABLE_TOOLS.get('steghide'): return
+    if not AVAILABLE_TOOLS.get('steghide'):
+        log_tool("steghide", "⏭ Skipped", "tidak terinstall"); return
     if check_early_exit(): return
     print(f"{Fore.GREEN}[STEGHIDE] Mencoba ekstraksi...{Style.RESET_ALL}")
+    log_tool("steghide", "running")
+    found_before = len(found_flags_set)
     out_dir=filepath.parent/f"{filepath.stem}_steghide"; out_dir.mkdir(exist_ok=True)
     out_file=out_dir/"extracted.txt"
     try:
@@ -1450,19 +1530,30 @@ def analyze_steghide(filepath, password=None):
         if password: cmd+=["-p",password]
         result=subprocess.run(cmd,capture_output=True,text=True,timeout=30)
         if result.returncode==0 and out_file.exists() and out_file.stat().st_size>0:
-            content=out_file.read_text(errors='ignore')
-            print(f"{Fore.GREEN}[STEGHIDE] Berhasil!{Style.RESET_ALL}")
-            print(content[:500])
-            collect_base64_from_text(content)
-            scan_text_for_flags(content, "STEGHIDE")
+            txt=out_file.read_text(errors='ignore')
+            print(f"{Fore.GREEN}[STEGHIDE] Berhasil ekstrak!{Style.RESET_ALL}")
+            print(txt[:500])
+            collect_base64_from_text(txt)
+            scan_text_for_flags(txt, "STEGHIDE")
             add_to_summary("STEGHIDE-EXTRACT",f"Saved to '{out_file.name}'")
-    except subprocess.TimeoutExpired: print(f"{Fore.RED}[STEGHIDE] Timeout.{Style.RESET_ALL}")
-    except Exception as e: print(f"{Fore.RED}[STEGHIDE] Gagal: {e}{Style.RESET_ALL}")
+            new_flags = list(found_flags_set)[found_before:]
+            log_tool("steghide", "✅ Found" if new_flags else "⬜ Extracted (no flag)",
+                     ", ".join(new_flags) if new_flags else f"data diekstrak: {out_file.name}")
+        else:
+            log_tool("steghide", "⬜ Nothing", "tidak ada data tersembunyi (tanpa password)")
+    except subprocess.TimeoutExpired:
+        print(f"{Fore.RED}[STEGHIDE] Timeout.{Style.RESET_ALL}")
+        log_tool("steghide", "❌ Error", "timeout 30s")
+    except Exception as e:
+        print(f"{Fore.RED}[STEGHIDE] Gagal: {e}{Style.RESET_ALL}")
+        log_tool("steghide", "❌ Error", str(e))
 
 def analyze_stegseek(filepath, wordlist=None):
     if not AVAILABLE_TOOLS.get('stegseek'):
-        print(f"{Fore.YELLOW}[STEGSEEK] Tidak terinstall.{Style.RESET_ALL}"); return
+        log_tool("stegseek", "⏭ Skipped", "tidak terinstall"); return
     if check_early_exit(): return
+    log_tool("stegseek", "running")
+    found_before = len(found_flags_set)
     wl = wordlist
     if not wl:
         for path in ROCKYOU_PATHS:
@@ -1483,19 +1574,33 @@ def analyze_stegseek(filepath, wordlist=None):
             print(f"{Fore.GREEN}[STEGSEEK] Password: \"{pw}\"{Style.RESET_ALL}")
             add_to_summary("STEGSEEK-PASS",f"Password: '{pw}'")
         scan_text_for_flags(output, "STEGSEEK")
+        extracted_count = 0
         for f in out_dir.glob("*"):
             if f.is_file() and f.stat().st_size>0:
-                content=f.read_text(errors='ignore')
-                scan_text_for_flags(content, "STEGSEEK-EXTRACT")
-                collect_base64_from_text(content)
+                txt=f.read_text(errors='ignore')
+                scan_text_for_flags(txt, "STEGSEEK-EXTRACT")
+                collect_base64_from_text(txt)
                 add_to_summary("STEGSEEK-EXTRACT",f"Saved to '{f.name}'")
+                extracted_count += 1
+        new_flags = list(found_flags_set)[found_before:]
+        if new_flags:
+            log_tool("stegseek", "✅ Found", ", ".join(new_flags))
+        elif pw_match:
+            log_tool("stegseek", "⬜ Extracted", f"password='{pw_match.group(1)}', {extracted_count} file")
+        else:
+            log_tool("stegseek", "⬜ Nothing", "tidak ada payload ditemukan")
     except subprocess.TimeoutExpired:
         print(f"{Fore.RED}[STEGSEEK] Timeout (600s).{Style.RESET_ALL}")
+        log_tool("stegseek", "❌ Error", "timeout 600s")
     except Exception as e:
         print(f"{Fore.RED}[STEGSEEK] Gagal: {e}{Style.RESET_ALL}")
+        log_tool("stegseek", "❌ Error", str(e))
 
 def analyze_outguess(filepath):
-    if not AVAILABLE_TOOLS.get('outguess'): return
+    if not AVAILABLE_TOOLS.get('outguess'):
+        log_tool("outguess", "⏭ Skipped", "tidak terinstall"); return
+    log_tool("outguess", "running")
+    found_before = len(found_flags_set)
     print(f"{Fore.GREEN}[OUTGUESS] Ekstraksi...{Style.RESET_ALL}")
     out_dir=filepath.parent/f"{filepath.stem}_outguess"; out_dir.mkdir(exist_ok=True)
     out_file=out_dir/"outguess.txt"
@@ -1503,26 +1608,44 @@ def analyze_outguess(filepath):
         result=subprocess.run(["outguess","-r",str(filepath),str(out_file)],
                                capture_output=True,text=True,timeout=30)
         if result.returncode==0 and out_file.exists():
-            content=out_file.read_text(errors='ignore')
-            collect_base64_from_text(content)
-            scan_text_for_flags(content, "OUTGUESS")
+            txt=out_file.read_text(errors='ignore')
+            collect_base64_from_text(txt)
+            scan_text_for_flags(txt, "OUTGUESS")
             add_to_summary("OUTGUESS-EXTRACT",f"Saved to '{out_file.name}'")
-    except Exception as e: print(f"{Fore.RED}[OUTGUESS] Gagal: {e}{Style.RESET_ALL}")
+            new_flags = list(found_flags_set)[found_before:]
+            log_tool("outguess", "✅ Found" if new_flags else "⬜ Extracted",
+                     ", ".join(new_flags) if new_flags else out_file.name)
+        else:
+            log_tool("outguess", "⬜ Nothing", "tidak ada payload")
+    except Exception as e:
+        print(f"{Fore.RED}[OUTGUESS] Gagal: {e}{Style.RESET_ALL}")
+        log_tool("outguess", "❌ Error", str(e))
 
 def analyze_foremost(filepath, quick=True):
-    if not AVAILABLE_TOOLS.get('foremost'): return
-    if quick and filepath.stat().st_size>50*1024*1024: return
+    if not AVAILABLE_TOOLS.get('foremost'):
+        log_tool("foremost", "⏭ Skipped", "tidak terinstall"); return
+    if quick and filepath.stat().st_size>50*1024*1024:
+        log_tool("foremost", "⏭ Skipped", "file terlalu besar (>50MB)"); return
     print(f"{Fore.GREEN}[FOREMOST] File carving...{Style.RESET_ALL}")
+    log_tool("foremost", "running")
+    found_before = len(found_flags_set)
     out_dir=filepath.parent/f"{filepath.stem}_foremost"
     try:
         subprocess.run(["foremost","-i",str(filepath),"-o",str(out_dir),"-v"],
                        capture_output=True,timeout=15 if quick else 60)
         files=list(out_dir.rglob("*")) if out_dir.exists() else []
-        if files:
-            for f in files[:5]:
-                if f.is_file(): analyze_strings_and_flags(f)
+        carved = [f for f in files if f.is_file()]
+        if carved:
+            for f in carved[:5]: analyze_strings_and_flags(f)
             add_to_summary("FOREMOST-EXTRACT",f"Saved to '{out_dir.name}'")
-    except Exception as e: print(f"{Fore.RED}[FOREMOST] Gagal: {e}{Style.RESET_ALL}")
+            new_flags = list(found_flags_set)[found_before:]
+            log_tool("foremost", "✅ Found" if new_flags else "⬜ Carved",
+                     ", ".join(new_flags) if new_flags else f"{len(carved)} file(s) carved")
+        else:
+            log_tool("foremost", "⬜ Nothing", "tidak ada file carved")
+    except Exception as e:
+        print(f"{Fore.RED}[FOREMOST] Gagal: {e}{Style.RESET_ALL}")
+        log_tool("foremost", "❌ Error", str(e))
 
 def analyze_pngcheck(filepath):
     if not AVAILABLE_TOOLS.get('pngcheck'): return
@@ -1554,6 +1677,8 @@ def analyze_graphicsmagick(filepath):
 
 def analyze_exif_deep(filepath):
     print(f"{Fore.GREEN}[EXIF-DEEP] EXIF metadata mendalam...{Style.RESET_ALL}")
+    log_tool("exiftool", "running")
+    found_before = len(found_flags_set)
     try:
         result=subprocess.run(["exiftool","-a","-u","-g1",str(filepath)],
                                capture_output=True,text=True,timeout=30)
@@ -1564,8 +1689,15 @@ def analyze_exif_deep(filepath):
         exif_dir=filepath.parent/f"{filepath.stem}_exif"; exif_dir.mkdir(exist_ok=True)
         (exif_dir/"full_exif.txt").write_text(output)
         add_to_summary("EXIF-EXTRACT","Saved to 'full_exif.txt'")
-    except FileNotFoundError: print(f"{Fore.YELLOW}[EXIF-DEEP] ExifTool tidak terinstall.{Style.RESET_ALL}")
-    except Exception as e: print(f"{Fore.RED}[EXIF-DEEP] Gagal: {e}{Style.RESET_ALL}")
+        new_flags = list(found_flags_set)[found_before:]
+        log_tool("exiftool", "✅ Found" if new_flags else "⬜ Nothing",
+                 ", ".join(new_flags) if new_flags else "tidak ada flag di metadata")
+    except FileNotFoundError:
+        print(f"{Fore.YELLOW}[EXIF-DEEP] ExifTool tidak terinstall.{Style.RESET_ALL}")
+        log_tool("exiftool", "⏭ Skipped", "tidak terinstall")
+    except Exception as e:
+        print(f"{Fore.RED}[EXIF-DEEP] Gagal: {e}{Style.RESET_ALL}")
+        log_tool("exiftool", "❌ Error", str(e))
 
 def bruteforce_steghide(filepath, wordlist=None, delay=0.1, parallel=5):
     if not AVAILABLE_TOOLS.get('steghide'): return
@@ -1760,7 +1892,12 @@ def analyze_disk_image(filepath):
             if idx!=-1:
                 add_to_summary("DISK-FILE",f"{ext.upper()} at offset {idx}")
         add_to_summary("DISK-ANALYSIS",f"Results in '{out_dir.name}'")
-    except Exception as e: print(f"{Fore.RED}[DISK] Gagal: {e}{Style.RESET_ALL}")
+        new_flags = list(found_flags_set)
+        log_tool("disk-analysis", "✅ Found" if new_flags else "⬜ Analyzed",
+                 ", ".join(new_flags) if new_flags else f"output: {out_dir.name}")
+    except Exception as e:
+        print(f"{Fore.RED}[DISK] Gagal: {e}{Style.RESET_ALL}")
+        log_tool("disk-analysis", "❌ Error", str(e))
 
 # ── Windows Event Log ────────────────────────
 
@@ -1783,28 +1920,69 @@ def analyze_windows_event_logs(filepath):
 # ── Report ────────────────────────────────────
 
 def print_final_report(filename):
-    print(f"\n{Fore.YELLOW}{'='*60}\n📋 FINAL REPORT: {filename}\n{'='*60}{Style.RESET_ALL}")
-    flags_found =[i for i in flag_summary if "FLAG" in i.upper() and "-FLAG" in i]
-    extractions =[i for i in flag_summary if "-EXTRACT" in i or "-ANALYZED" in i]
-    analysis    =[i for i in flag_summary if "FLAG" not in i.upper() and "-EXTRACT" not in i and "-ANALYZED" not in i]
-    if flags_found:
-        print(f"\n{Fore.GREEN}🚩 FLAGS ({len(flags_found)}):{Style.RESET_ALL}")
-        for i,item in enumerate(flags_found,1):
-            m=re.search(r'\[.*?\]\s*(.+)',item)
-            print(f"{Fore.GREEN}  {i}. {m.group(1) if m else item}{Style.RESET_ALL}")
+    W = 62
+    print(f"\n{Fore.YELLOW}{'═'*W}")
+    print(f"  📋  FINAL REPORT — {filename}")
+    print(f"{'═'*W}{Style.RESET_ALL}")
+
+    # ── TOOL LOG TABLE (selalu tampil, berurutan)
+    if tool_log:
+        # Filter duplikat tool (simpan entry terakhir per tool)
+        seen = {}
+        for entry in tool_log:
+            if entry["status"] != "running":
+                seen[entry["tool"]] = entry
+        unique_log = list(seen.values())
+
+        print(f"\n{Fore.CYAN}{'─'*W}")
+        print(f"  🛠  TOOLS YANG DIJALANKAN ({len(unique_log)})")
+        print(f"{'─'*W}{Style.RESET_ALL}")
+        print(f"  {'Tool':<20} {'Status':<20} Hasil")
+        print(f"  {'─'*18} {'─'*18} {'─'*20}")
+        for entry in unique_log:
+            tool   = entry["tool"]
+            status = entry["status"]
+            result = entry["result"][:35] + "..." if len(entry["result"]) > 35 else entry["result"]
+            if "✅" in status:
+                color = Fore.GREEN
+            elif "⬜" in status:
+                color = Fore.WHITE
+            elif "⏭" in status:
+                color = Fore.YELLOW
+            else:
+                color = Fore.RED
+            print(f"  {color}{tool:<20} {status:<20} {result}{Style.RESET_ALL}")
+
+    # ── FLAG(s) — hanya flag unik, format jelas
+    unique_flags = sorted(found_flags_set)
+    if unique_flags:
+        print(f"\n{Fore.GREEN}{'─'*W}")
+        print(f"  🚩  FLAG DITEMUKAN ({len(unique_flags)})")
+        print(f"{'─'*W}{Style.RESET_ALL}")
+        for i, flag in enumerate(unique_flags, 1):
+            print(f"  {Fore.GREEN}{Fore.BRIGHT}{i}. {flag}{Style.RESET_ALL}")
+    else:
+        print(f"\n{Fore.YELLOW}  ⚠  Belum ada flag ditemukan.{Style.RESET_ALL}")
+
+    # ── Base64 decoded
     if base64_collector:
-        print(f"\n{Fore.CYAN}🔓 BASE64 ({len(base64_collector)}):{Style.RESET_ALL}")
-        for i,item in enumerate(base64_collector[:5],1):
-            print(f"  {i}. {item[:100]}{'...' if len(item)>100 else ''}")
+        print(f"\n{Fore.CYAN}{'─'*W}")
+        print(f"  🔓  BASE64 DECODED ({len(base64_collector)})")
+        print(f"{'─'*W}{Style.RESET_ALL}")
+        for i, item in enumerate(base64_collector[:5], 1):
+            print(f"  {i}. {item[:90]}{'...' if len(item)>90 else ''}")
+
+    # ── Extractions
+    extractions = [i for i in flag_summary if "-EXTRACT" in i or "-ANALYZED" in i]
     if extractions:
-        print(f"\n{Fore.BLUE}📦 EXTRACTIONS ({len(extractions)}):{Style.RESET_ALL}")
-        for item in extractions: print(f"  • {item}")
-    if analysis:
-        print(f"\n{Fore.MAGENTA}🔍 ANALYSIS ({len(analysis)}):{Style.RESET_ALL}")
-        for item in analysis[:15]: print(f"  • {item}")
-    print(f"\n{Fore.YELLOW}📊 STATS: total={len(flag_summary)}, flags={len(flags_found)}, "
-          f"b64={len(base64_collector)}{Style.RESET_ALL}")
-    print(f"{Fore.YELLOW}{'='*60}{Style.RESET_ALL}")
+        print(f"\n{Fore.BLUE}{'─'*W}")
+        print(f"  📦  EXTRACTIONS ({len(extractions)})")
+        print(f"{'─'*W}{Style.RESET_ALL}")
+        for item in extractions:
+            m = re.search(r'\[.*?\]\s*(.+)', item)
+            print(f"  • {m.group(1) if m else item}")
+
+    print(f"\n{Fore.YELLOW}{'═'*W}{Style.RESET_ALL}\n")
 
 # ── Main Processor ────────────────────────────
 
@@ -2083,6 +2261,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 PYTHON_ENGINE
 }
 
