@@ -101,6 +101,7 @@ ${BOLD}Brute Force:${NC}
 ${BOLD}Misc:${NC}
   -f, --format STR Custom flag prefix (e.g. 'picoCTF{')
   --install        Install semua optional tools
+  --update         Update RAVEN yang sudah terinstall ke versi baru ini
   --install-global Install raven ke /usr/local/bin (jalankan dari mana saja)
   --uninstall      Hapus raven dari sistem
   --update-deps    Reinstall Python dependencies
@@ -135,6 +136,7 @@ install_tools() {
             steghide foremost pngcheck binwalk exiftool \
             tshark wireshark-common ruby ruby-dev \
             build-essential libjpeg-dev python3-venv \
+            john hashcat \
             2>/dev/null || warn "Beberapa paket gagal diinstall."
 
         # stegseek
@@ -167,10 +169,44 @@ install_tools() {
             sudo gem install zsteg 2>/dev/null && success "zsteg terinstall." || warn "zsteg gagal."
         fi
 
-        # outguess
+        # outguess — coba apt dulu, fallback build dari source
         if ! command -v outguess &>/dev/null; then
-            sudo apt-get install -y outguess 2>/dev/null || \
-            warn "outguess tidak ada di repo, install manual."
+            info "Menginstall outguess..."
+            if sudo apt-get install -y outguess 2>/dev/null; then
+                success "outguess terinstall via apt."
+            else
+                info "apt gagal, build outguess dari source..."
+                local og_tmp="/tmp/outguess_build"
+                rm -rf "$og_tmp" && mkdir -p "$og_tmp"
+                if command -v git &>/dev/null; then
+                    git clone -q https://github.com/crorvick/outguess "$og_tmp" 2>/dev/null &&                     cd "$og_tmp" &&                     sudo apt-get install -y autoconf automake libjpeg-dev 2>/dev/null &&                     autoreconf -i 2>/dev/null &&                     ./configure --quiet 2>/dev/null &&                     make -s 2>/dev/null &&                     sudo make install -s 2>/dev/null &&                     cd - > /dev/null &&                     success "outguess berhasil diinstall dari source!" ||                     warn "outguess gagal build. Install manual: sudo apt install outguess"
+                    rm -rf "$og_tmp"
+                else
+                    warn "outguess tidak bisa diinstall (git tidak tersedia). Install manual: sudo apt install outguess"
+                fi
+            fi
+        else
+            success "outguess sudah ada."
+        fi
+
+        # jphs / jpseek — JPEG steganography tools
+        if ! command -v jphs &>/dev/null && ! command -v jpseek &>/dev/null; then
+            info "Menginstall jphs (JPEG stego)..."
+            if sudo apt-get install -y jphs 2>/dev/null; then
+                success "jphs terinstall."
+            else
+                info "jphs tidak ada di apt, build dari source..."
+                local jphs_tmp="/tmp/jphs_build"
+                rm -rf "$jphs_tmp" && mkdir -p "$jphs_tmp"
+                if command -v git &>/dev/null; then
+                    git clone -q https://github.com/h3xx/jphs "$jphs_tmp" 2>/dev/null &&                     cd "$jphs_tmp" &&                     sudo apt-get install -y libjpeg-dev 2>/dev/null &&                     make -s 2>/dev/null &&                     sudo cp jphs jpseek /usr/local/bin/ 2>/dev/null &&                     cd - > /dev/null &&                     success "jphs/jpseek terinstall!" ||                     warn "jphs gagal. Tidak kritis untuk CTF."
+                    rm -rf "$jphs_tmp"
+                else
+                    warn "jphs tidak bisa diinstall. Tidak kritis untuk CTF."
+                fi
+            fi
+        else
+            success "jphs/jpseek sudah ada."
         fi
 
     elif command -v brew &>/dev/null; then
@@ -187,6 +223,48 @@ install_tools() {
 # ─────────────────────────────────────────────
 # INSTALL GLOBAL (ke /usr/local/bin)
 # ─────────────────────────────────────────────
+update_global() {
+    info "Update RAVEN ke versi terbaru..."
+
+    local src="${BASH_SOURCE[0]}"
+    local dest="$GLOBAL_BIN"
+
+    if [[ ! -f "$dest" ]]; then
+        warn "RAVEN belum terinstall secara global."
+        info "Jalankan dulu: ./raven.sh --install-global"
+        exit 1
+    fi
+
+    # Backup versi lama
+    local backup="${dest}.backup.$(date +%Y%m%d_%H%M%S)"
+    cp "$dest" "$backup"
+    info "Backup versi lama: $backup"
+
+    # Copy versi baru
+    if [[ ! -w "$(dirname $dest)" ]]; then
+        sudo cp "$src" "$dest"
+        sudo chmod +x "$dest"
+    else
+        cp "$src" "$dest"
+        chmod +x "$dest"
+    fi
+
+    # Hapus engine lama supaya di-regenerate dari versi baru
+    rm -f "$PYTHON_INLINE"
+
+    # Pre-generate engine baru
+    local py
+    py=$(check_python) || die "Python 3.8+ tidak ditemukan."
+    setup_venv "$py"
+    write_python_engine
+
+    success "RAVEN berhasil diupdate!"
+    echo ""
+    echo -e "  ${GREEN}Backup tersimpan di: $backup${NC}"
+    echo -e "  ${GREEN}Engine baru digenerate di: $PYTHON_INLINE${NC}"
+    exit 0
+}
+
 install_global() {
     info "Install RAVEN secara global..."
 
@@ -3189,6 +3267,7 @@ main() {
     for arg in "$@"; do
         case "$arg" in
             --install)         install_tools ;;
+            --update)          update_global ;;
             --install-global)  install_global ;;
             --uninstall)       uninstall_global ;;
             -h|--help)         usage; exit 0 ;;
@@ -3218,8 +3297,13 @@ main() {
 
     # Filter flag milik shell sebelum dikirim ke Python
     local python_args=()
+    local _shell_flags=(--install --update --install-global --uninstall --update-deps -h --help)
     for arg in "$@"; do
-        [[ "$arg" != "--update-deps" ]] && python_args+=("$arg")
+        local _skip=0
+        for _sf in "${_shell_flags[@]}"; do
+            [[ "$arg" == "$_sf" ]] && _skip=1 && break
+        done
+        [[ $_skip -eq 0 ]] && python_args+=("$arg")
     done
 
     echo ""
