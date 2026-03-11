@@ -235,13 +235,18 @@ update_global() {
         exit 1
     fi
 
-    # Backup versi lama
-    local backup="${dest}.backup.$(date +%Y%m%d_%H%M%S)"
-    cp "$dest" "$backup"
+    # Tentukan apakah perlu sudo
+    local use_sudo=0
+    [[ ! -w "$(dirname $dest)" ]] && use_sudo=1
+
+    # Backup versi lama (simpan di $RAVEN_HOME bukan di /usr/local/bin)
+    mkdir -p "$RAVEN_HOME/backups"
+    local backup="$RAVEN_HOME/backups/raven.backup.$(date +%Y%m%d_%H%M%S)"
+    cp "$dest" "$backup" 2>/dev/null || true
     info "Backup versi lama: $backup"
 
     # Copy versi baru
-    if [[ ! -w "$(dirname $dest)" ]]; then
+    if [[ $use_sudo -eq 1 ]]; then
         sudo cp "$src" "$dest"
         sudo chmod +x "$dest"
     else
@@ -261,7 +266,7 @@ update_global() {
     success "RAVEN berhasil diupdate!"
     echo ""
     echo -e "  ${GREEN}Backup tersimpan di: $backup${NC}"
-    echo -e "  ${GREEN}Engine baru digenerate di: $PYTHON_INLINE${NC}"
+    echo -e "  ${GREEN}Engine baru: $PYTHON_INLINE${NC}"
     exit 0
 }
 
