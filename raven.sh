@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════
-#  RAVEN v3.0 — CTF Multi-Category Toolkit (GLOBAL INSTALL)
+#  RAVEN v4.0 — CTF Multi-Category Toolkit
 #  Jalankan dari mana saja setelah install: raven [FILE] [OPTIONS]
 #  Install global: ./raven.sh --install-global
 #  Usage: ./raven.sh [FILE(S)] [OPTIONS]
@@ -20,8 +20,6 @@ success() { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 err_msg() { echo -e "${RED}[ERR]${NC}   $*" >&2; }
 die()     { err_msg "$*"; exit 1; }
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── Data disimpan di ~/.raven (bukan folder script)
 # ── sehingga bisa dijalankan dari direktori mana saja
@@ -63,7 +61,7 @@ ${BOLD}Modes:${NC}
   --windows        Windows Event Log forensics
   --folder DIR     Scan semua file di folder (fake extension detection)
 
-${BOLD}CTF Spesifik (BARU v3.0):${NC}
+${BOLD}CTF Spesifik (v3.0+):${NC}
   --reg            Windows Registry (.reg) — decode hex: values
   --log            Web server log analysis (Apache/Nginx) — IP, attack, flag
   --autorun        Autorun.inf / INF file — reverse, ROT13, caesar, b64
@@ -72,7 +70,7 @@ ${BOLD}CTF Spesifik (BARU v3.0):${NC}
   --vol-plugin P   Plugin Volatility tambahan (e.g. windows.cmdline)
   --deobfuscate    Coba semua decode: reverse/ROT13/caesar/atbash/b64/hex
 
-${BOLD}Cryptography v4.0 (BARU):${NC}
+${BOLD}Cryptography (v4.0):${NC}
   --crypto         Auto-attack crypto: RSA, Vigenere+acrostic, XOR KPA,
                    Classic Cipher (Atbash/Caesar), Encoding Chain
   --rsa            Paksa RSA attacks (weak prime/Fermat/Common-Modulus/Bellcore)
@@ -653,7 +651,7 @@ def scan_text_for_flags(text, source=""):
     return found
 
 # ═══════════════════════════════════════════════════════
-# ══ FITUR BARU v3.1 ════════════════════════════════════
+# ══ FITUR v3.1 ═════════════════════════════════════════
 # ═══════════════════════════════════════════════════════
 
 # ── 1. DEOBFUSCATION ENGINE ──────────────────
@@ -2125,7 +2123,7 @@ def _build_result():
 
 
 # ═══════════════════════════════════════════════════════
-# ══ FITUR BARU v3.1 ════════════════════════════════════
+# ══ FITUR v3.1 ═════════════════════════════════════════
 # ═══════════════════════════════════════════════════════
 
 # ── EXTENDED DECODE ENGINE ───────────────────
@@ -4069,7 +4067,7 @@ def main():
     modes.add_argument("--windows",   action="store_true",help="Windows Event Log")
     modes.add_argument("--folder",    type=str,           help="Scan semua file di folder (fake ext detection)")
 
-    ctf=p.add_argument_group("CTF Spesifik (BARU v3.1)")
+    ctf=p.add_argument_group("CTF Spesifik (v3.1+)")
     ctf.add_argument("--reg",        action="store_true",help="Windows Registry (.reg) analysis")
     ctf.add_argument("--log",        action="store_true",help="Web server log analysis (Apache/Nginx)")
     ctf.add_argument("--autorun",    action="store_true",help="Autorun.inf / INF file analysis")
@@ -4088,7 +4086,7 @@ def main():
     ctf.add_argument("--deobfuscate",action="store_true",
                      help="Coba semua decode: reverse/ROT13/caesar/atbash/b64/hex/xor")
 
-    crypto_grp=p.add_argument_group("Cryptography v4.0 (BARU)")
+    crypto_grp=p.add_argument_group("Cryptography (v4.0)")
     crypto_grp.add_argument("--crypto",       action="store_true",
                      help="Auto-detect & attack: RSA (weak/Fermat/CommonMod/Bellcore), "
                           "Vigenere+acrostic, XOR KPA, Classic Cipher, Encoding Chain")
