@@ -4817,6 +4817,16 @@ MODE_FLAGS=(
     [ai]=""
 )
 
+# Global variable untuk menyimpan hasil menu
+MENU_SELECTED_FLAGS=""
+MENU_TEMP_FILE=$(mktemp -t raven_menu.XXXXXX 2>/dev/null || echo "/tmp/raven_menu.$$")
+
+# Cleanup temp file on exit
+cleanup_menu_temp() {
+    rm -f "$MENU_TEMP_FILE" 2>/dev/null
+}
+trap cleanup_menu_temp EXIT
+
 # Detect available TUI tools
 detect_tui_support() {
     if command -v fzf &>/dev/null; then
@@ -4846,14 +4856,19 @@ show_category_menu_select() {
     echo ""
     echo -e "${YELLOW}  Pilih kategori analisis CTF (multi-select):${NC}"
     echo -e "${CYAN}  Pilih beberapa mode, lalu tekan '10' untuk konfirmasi & run${NC}"
+    echo -e "${CYAN}  Tekan Ctrl+C untuk batal${NC}"
     echo ""
 
     local selected_flags=""
     local selected_count=0
 
-    PS3="  ${GREEN}> Masukkan nomor [1-10]:${NC} "
+    PS3="  ${GREEN}> Masukkan nomor [1-11]:${NC} "
 
-    local choice
+    echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║  MODES YANG DIPILIH: (belum ada)                         ║${NC}"
+    echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
     select choice in \
         "⚡ Auto-detect (biarkan RAVEN memilih)" \
         "🖼️  Steganografi (PNG/JPG/audio/LSB)" \
@@ -4872,89 +4887,114 @@ show_category_menu_select() {
                 if [[ "$selected_flags" != *"--auto"* ]]; then
                     selected_flags="$selected_flags --auto"
                     ((selected_count++))
-                    info "✓ Auto-detect ditambahkan (${selected_count} mode dipilih)"
+                    echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
+                    echo -e "${GREEN}║  ✓ Auto-detect ditambahkan (${selected_count} mode dipilih)           ║${NC}"
+                    echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
                 else
-                    warn "Auto-detect sudah dipilih"
+                    echo -e "${YELLOW}  ⚠ Auto-detect sudah dipilih${NC}"
                 fi
                 ;;
             2)
                 if [[ "$selected_flags" != *"--lsb"* ]]; then
                     selected_flags="$selected_flags --lsb --steghide --stegseek --outguess --pngcheck --exif --stegdetect --lsbextract --remap --deep --alpha"
                     ((selected_count++))
-                    info "✓ Steganografi ditambahkan (${selected_count} mode dipilih)"
+                    echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
+                    echo -e "${GREEN}║  ✓ Steganografi ditambahkan (${selected_count} mode dipilih)          ║${NC}"
+                    echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
                 else
-                    warn "Steganografi sudah dipilih"
+                    echo -e "${YELLOW}  ⚠ Steganografi sudah dipilih${NC}"
                 fi
                 ;;
             3)
                 if [[ "$selected_flags" != *"--disk"* ]]; then
                     selected_flags="$selected_flags --disk --volatility --memory --foremost"
                     ((selected_count++))
-                    info "✓ Forensik Digital ditambahkan (${selected_count} mode dipilih)"
+                    echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
+                    echo -e "${GREEN}║  ✓ Forensik Digital ditambahkan (${selected_count} mode dipilih)      ║${NC}"
+                    echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
                 else
-                    warn "Forensik Digital sudah dipilih"
+                    echo -e "${YELLOW}  ⚠ Forensik Digital sudah dipilih${NC}"
                 fi
                 ;;
             4)
                 if [[ "$selected_flags" != *"--crypto"* ]]; then
                     selected_flags="$selected_flags --crypto"
                     ((selected_count++))
-                    info "✓ Kriptografi ditambahkan (${selected_count} mode dipilih)"
+                    echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
+                    echo -e "${GREEN}║  ✓ Kriptografi ditambahkan (${selected_count} mode dipilih)           ║${NC}"
+                    echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
                 else
-                    warn "Kriptografi sudah dipilih"
+                    echo -e "${YELLOW}  ⚠ Kriptografi sudah dipilih${NC}"
                 fi
                 ;;
             5)
                 if [[ "$selected_flags" != *"--log"* ]]; then
                     selected_flags="$selected_flags --log --pcap"
                     ((selected_count++))
-                    info "✓ Web & Log Analysis ditambahkan (${selected_count} mode dipilih)"
+                    echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
+                    echo -e "${GREEN}║  ✓ Web & Log Analysis ditambahkan (${selected_count} mode dipilih)    ║${NC}"
+                    echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
                 else
-                    warn "Web & Log Analysis sudah dipilih"
+                    echo -e "${YELLOW}  ⚠ Web & Log Analysis sudah dipilih${NC}"
                 fi
                 ;;
             6)
                 if [[ "$selected_flags" != *"--reversing"* ]]; then
                     selected_flags="$selected_flags --reversing --unpack"
                     ((selected_count++))
-                    info "✓ Reversing ditambahkan (${selected_count} mode dipilih)"
+                    echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
+                    echo -e "${GREEN}║  ✓ Reversing ditambahkan (${selected_count} mode dipilih)             ║${NC}"
+                    echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
                 else
-                    warn "Reversing sudah dipilih"
+                    echo -e "${YELLOW}  ⚠ Reversing sudah dipilih${NC}"
                 fi
                 ;;
             7)
-                warn "Mode Pwn/Exploit masih dalam pengembangan"
+                echo -e "${YELLOW}  ⚠ Mode Pwn/Exploit masih dalam pengembangan${NC}"
                 ;;
             8)
                 if [[ "$selected_flags" != *"--decode"* ]]; then
                     selected_flags="$selected_flags --decode --extract --deobfuscate"
                     ((selected_count++))
-                    info "✓ Misc / Encode ditambahkan (${selected_count} mode dipilih)"
+                    echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
+                    echo -e "${GREEN}║  ✓ Misc / Encode ditambahkan (${selected_count} mode dipilih)         ║${NC}"
+                    echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
                 else
-                    warn "Misc / Encode sudah dipilih"
+                    echo -e "${YELLOW}  ⚠ Misc / Encode sudah dipilih${NC}"
                 fi
                 ;;
             9)
-                warn "AI-Assisted Solver belum tersedia"
+                echo -e "${YELLOW}  ⚠ AI-Assisted Solver belum tersedia${NC}"
                 ;;
             10)
                 if [[ $selected_count -eq 0 ]]; then
-                    warn "Belum ada mode dipilih!"
+                    echo -e "${RED}  ✖ Belum ada mode dipilih! Silakan pilih minimal 1 mode.${NC}"
                 else
-                    success "Menjalankan dengan ${selected_count} mode..."
-                    echo "$selected_flags"
-                    return 0
+                    echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
+                    echo -e "${GREEN}║  ✓ Menjalankan dengan ${selected_count} mode...                         ║${NC}"
+                    echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
+                    MENU_SELECTED_FLAGS="$selected_flags"
+                    break  # Keluar dari select loop
                 fi
                 ;;
             11)
-                info "Keluar dari RAVEN"
-                return 1
+                echo -e "${CYAN}  Keluar dari RAVEN${NC}"
+                MENU_SELECTED_FLAGS=""
+                break  # Keluar dari select loop
                 ;;
             *)
-                err_msg "Pilihan tidak valid. Masukkan nomor 1-11."
+                echo -e "${RED}  ✖ Pilihan tidak valid. Masukkan nomor 1-11.${NC}"
                 ;;
         esac
+        echo ""
     done
+    
+    # Check if we have selected flags after loop exits
+    if [[ -n "$MENU_SELECTED_FLAGS" ]]; then
+        return 0
+    else
+        return 1
+    fi
 }
 
 # Mode B: whiptail TUI (checkbox + multi-select)
@@ -4963,14 +5003,14 @@ show_category_menu_whiptail() {
 
     local file_list=""
     for f in "${files[@]}"; do
-        file_list+="• $f\n"
+        file_list+="$f "
     done
 
     # Use checklist for multi-select
     local choices
     choices=$(whiptail --title "RAVEN v5.0 — Multi-Select Mode" \
         --backtitle "CTF Multi-Category Toolkit | Space: select | Enter: confirm" \
-        --checklist "\nFiles: ${file_list}\nPilih beberapa mode (Space untuk pilih):" 22 78 10 \
+        --checklist "\nFiles: $file_list\nPilih beberapa mode (Space untuk pilih):" 22 78 10 \
         "auto" "⚡ Auto-detect" ON \
         "stego" "🖼️  Steganografi" OFF \
         "forensics" "🔬 Forensik Digital" OFF \
@@ -4983,13 +5023,19 @@ show_category_menu_whiptail() {
         3>&1 1>&2 2>&3)
 
     local exit_status=$?
+    
+    # whiptail returns 0 when OK is pressed, even with default selection
     if [[ $exit_status -ne 0 ]]; then
+        MENU_SELECTED_FLAGS=""
         return 1
     fi
 
     # Parse selected choices
     local flags=""
     for choice in $choices; do
+        # Remove quotes if present
+        choice="${choice//\"/}"
+        
         case $choice in
             auto) flags="$flags --auto" ;;
             stego) flags="$flags --lsb --steghide --stegseek --outguess --pngcheck --exif --stegdetect --lsbextract --remap --deep --alpha" ;;
@@ -4997,18 +5043,18 @@ show_category_menu_whiptail() {
             crypto) flags="$flags --crypto" ;;
             web) flags="$flags --log --pcap" ;;
             reversing) flags="$flags --reversing --unpack" ;;
-            pwn) warn "Mode Pwn/Exploit masih dalam pengembangan" ;;
+            pwn) ;; # Skip, not implemented
             misc) flags="$flags --decode --extract --deobfuscate" ;;
-            ai) warn "AI Solver belum tersedia" ;;
+            ai) ;; # Skip, not implemented
         esac
     done
 
     if [[ -z "$flags" ]]; then
-        warn "Tidak ada mode dipilih!"
+        MENU_SELECTED_FLAGS=""
         return 1
     fi
 
-    echo "$flags"
+    MENU_SELECTED_FLAGS="$flags"
     return 0
 }
 
@@ -5049,6 +5095,7 @@ show_category_menu_fzf() {
         --ansi)
 
     if [[ -z "$choices" ]]; then
+        MENU_SELECTED_FLAGS=""
         return 1
     fi
 
@@ -5073,38 +5120,36 @@ show_category_menu_fzf() {
     done <<< "$choices"
 
     if [[ -z "$flags" ]]; then
+        MENU_SELECTED_FLAGS=""
         return 1
     fi
 
-    echo "$flags"
+    MENU_SELECTED_FLAGS="$flags"
     return 0
 }
 
 # Main menu dispatcher
 show_category_menu() {
     local files=("$@")
-    
+
     # Detect best available TUI
     local tui_type
     tui_type=$(detect_tui_support)
-    
-    local flags=""
-    
+
     case $tui_type in
         "fzf")
-            flags=$(show_category_menu_fzf "${files[@]}") || return 1
+            show_category_menu_fzf "${files[@]}" || return 1
             ;;
         "whiptail")
-            flags=$(show_category_menu_whiptail "${files[@]}") || return 1
+            show_category_menu_whiptail "${files[@]}" || return 1
             ;;
         *)
-            flags=$(show_category_menu_select "${files[@]}") || return 1
+            show_category_menu_select "${files[@]}" || return 1
             ;;
     esac
-    
-    # Return selected flags
-    if [[ -n "$flags" ]]; then
-        echo "$flags"
+
+    # Return selected flags via global variable
+    if [[ -n "$MENU_SELECTED_FLAGS" ]]; then
         return 0
     else
         return 1
@@ -5160,10 +5205,11 @@ main() {
     # Show interactive menu if no mode flag specified
     if [[ $has_mode_flag -eq 0 && ${#python_args[@]} -gt 0 ]]; then
         info "No specific mode selected. Opening interactive menu..."
-        local selected_flags
-        if selected_flags=$(show_category_menu "${python_args[@]}"); then
+        echo ""
+        
+        if show_category_menu "${python_args[@]}"; then
             # Prepend selected flags to python args
-            python_args=($selected_flags "${python_args[@]}")
+            python_args=($MENU_SELECTED_FLAGS "${python_args[@]}")
             success "Mode selected. Starting analysis..."
         else
             info "Menu cancelled. Exiting."
