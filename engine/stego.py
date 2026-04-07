@@ -15,29 +15,32 @@ except ImportError:
     HAS_PIL = False
 
 
-def analyze_image(filepath, deep=False, alpha=False):
+def analyze_image(filepath, deep=False, alpha=False, output_dir=None):
     """Analisis visual stego: bit planes + channel RGB."""
     if not HAS_PIL:
         print(f"{Fore.RED}[!] Pillow tidak terinstall.{Style.RESET_ALL}")
         return
-    
+
     print(f"{Fore.GREEN}[IMAGE] Analisis visual stego...{Style.RESET_ALL}")
     core.log_event(len(core.event_log) + 1, "image-analysis", "running")
-    
+
+    if output_dir is None:
+        output_dir = filepath.parent
+
     try:
         img = Image.open(filepath)
         if img.mode == 'RGBA' or (alpha and img.mode == 'P'):
             img = img.convert("RGBA")
         elif img.mode != 'RGB':
             img = img.convert("RGB")
-        
+
         channels = list(img.split()[:3])
         names = ["red", "green", "blue"]
         if img.mode == 'RGBA':
             channels.append(img.split()[3])
             names.append("alpha")
-        
-        bp_dir = filepath.parent / f"{filepath.stem}_bitplanes"
+
+        bp_dir = output_dir / f"{filepath.stem}_bitplanes"
         bp_dir.mkdir(exist_ok=True)
         
         bit_range = range(8) if deep else [6, 7]
@@ -54,7 +57,7 @@ def analyze_image(filepath, deep=False, alpha=False):
             out = subprocess.getoutput(f"strings '{f}'")
             core.scan_text_for_flags(out, f"BITPLANE-{f.name}")
         
-        ch_dir = filepath.parent / f"{filepath.stem}_channels"
+        ch_dir = output_dir / f"{filepath.stem}_channels"
         ch_dir.mkdir(exist_ok=True)
         r, g, b = img.split()[:3]
         r.save(ch_dir / "red.png")
@@ -70,14 +73,17 @@ def analyze_image(filepath, deep=False, alpha=False):
         core.log_event(len(core.event_log), "image-analysis", "error", str(e))
 
 
-def extract_lsb_data(filepath):
+def extract_lsb_data(filepath, output_dir=None):
     """Ekstrak raw LSB bytes dari gambar."""
     if not HAS_PIL:
         return
-    
+
+    if output_dir is None:
+        output_dir = filepath.parent
+
     print(f"{Fore.GREEN}[LSB-EXTRACT] Ekstrak raw LSB...{Style.RESET_ALL}")
     core.log_event(len(core.event_log) + 1, "lsb-extract", "running")
-    
+
     try:
         img = Image.open(filepath)
         arr = np.array(img)
@@ -89,7 +95,7 @@ def extract_lsb_data(filepath):
         combined = np.concatenate(lsb)
         lsb_bytes = np.packbits(combined)
         
-        out_dir = filepath.parent / f"{filepath.stem}_lsb_raw"
+        out_dir = output_dir / f"{filepath.stem}_lsb_raw"
         out_dir.mkdir(exist_ok=True)
         out_file = out_dir / "lsb_raw.bin"
         out_file.write_bytes(lsb_bytes.tobytes())
@@ -109,24 +115,27 @@ def extract_lsb_data(filepath):
         core.log_event(len(core.event_log), "lsb-extract", "error", str(e))
 
 
-def compare_images(filepath1, filepath2):
+def compare_images(filepath1, filepath2, output_dir=None):
     """Bandingkan dua gambar, hitung pixel berbeda."""
     if not HAS_PIL:
         return
-    
+
+    if output_dir is None:
+        output_dir = filepath1.parent
+
     print(f"{Fore.GREEN}[IMAGE-COMPARE] Membandingkan gambar...{Style.RESET_ALL}")
-    
+
     try:
         arr1 = np.array(Image.open(filepath1))
         arr2 = np.array(Image.open(filepath2))
-        
+
         if arr1.shape != arr2.shape:
             s = tuple(min(a, b) for a, b in zip(arr1.shape, arr2.shape))
             arr1 = arr1[:s[0], :s[1]] if arr1.ndim == 2 else arr1[:s[0], :s[1], :s[2]]
             arr2 = arr2[:s[0], :s[1]] if arr2.ndim == 2 else arr2[:s[0], :s[1], :s[2]]
-        
+
         diff = np.abs(arr1.astype(np.int16) - arr2.astype(np.int16))
-        out_dir = filepath1.parent / f"{filepath1.stem}_compare"
+        out_dir = output_dir / f"{filepath1.stem}_compare"
         out_dir.mkdir(exist_ok=True)
         Image.fromarray(diff.astype(np.uint8)).save(out_dir / "difference.png")
         
@@ -168,17 +177,19 @@ def analyze_steg_methods(filepath):
         print(f"{Fore.RED}[STEG-DETECT] Gagal: {e}{Style.RESET_ALL}")
 
 
-def color_remapping(filepath):
+def color_remapping(filepath, output_dir=None):
     """Buat 8 variasi palette dari gambar."""
+    if output_dir is None:
+        output_dir = filepath.parent
     if not HAS_PIL:
         return
-    
+
     print(f"{Fore.GREEN}[COLOR-REMAP] Membuat 8 palette variant...{Style.RESET_ALL}")
     
     try:
         img = Image.open(filepath).convert('RGBA' if Image.open(filepath).mode == 'RGBA' else 'RGB')
         np_img = np.array(img)
-        out_dir = filepath.parent / f"{filepath.stem}_remap"
+        out_dir = output_dir / f"{filepath.stem}_remap"
         out_dir.mkdir(exist_ok=True)
         
         for i in range(8):
@@ -198,8 +209,10 @@ def color_remapping(filepath):
         print(f"{Fore.RED}[COLOR-REMAP] Gagal: {e}{Style.RESET_ALL}")
 
 
-def analyze_zsteg(filepath):
+def analyze_zsteg(filepath, output_dir=None):
     """Full LSB analysis dengan zsteg."""
+    if output_dir is None:
+        output_dir = filepath.parent
     if not core.AVAILABLE_TOOLS.get('zsteg'):
         core.log_tool("zsteg", "⏭ Skipped", "tidak terinstall")
         return
@@ -232,18 +245,20 @@ def analyze_zsteg(filepath):
         core.log_event(len(core.event_log), "zsteg", "error", str(e))
 
 
-def analyze_steghide(filepath, password=None):
+def analyze_steghide(filepath, password=None, output_dir=None):
     """Ekstraksi data tersembunyi dengan steghide."""
+    if output_dir is None:
+        output_dir = filepath.parent
     if not core.AVAILABLE_TOOLS.get('steghide'):
         core.log_tool("steghide", "⏭ Skipped", "tidak terinstall")
         return
-    
+
     if core.check_early_exit():
         return
-    
+
     print(f"{Fore.GREEN}[STEGHIDE] Mencoba ekstraksi...{Style.RESET_ALL}")
     found_before = len(core.found_flags_set)
-    out_dir = filepath.parent / f"{filepath.stem}_steghide"
+    out_dir = output_dir / f"{filepath.stem}_steghide"
     out_dir.mkdir(exist_ok=True)
     out_file = out_dir / "extracted.txt"
     
@@ -277,8 +292,10 @@ def analyze_steghide(filepath, password=None):
         core.log_event(len(core.event_log) + 1, "steghide", "error", str(e))
 
 
-def analyze_stegseek(filepath, wordlist=None):
+def analyze_stegseek(filepath, wordlist=None, output_dir=None):
     """Brute-force stegseek dengan rockyou.txt."""
+    if output_dir is None:
+        output_dir = filepath.parent
     if not core.AVAILABLE_TOOLS.get('stegseek'):
         core.log_tool("stegseek", "⏭ Skipped", "tidak terinstall")
         return
@@ -300,7 +317,7 @@ def analyze_stegseek(filepath, wordlist=None):
     print(f"{Fore.GREEN}[STEGSEEK] Brute-force dengan: {wl}{Style.RESET_ALL}")
     core.log_event(len(core.event_log) + 1, "stegseek", "running")
     found_before = len(core.found_flags_set)
-    out_dir = filepath.parent / f"{filepath.stem}_stegseek"
+    out_dir = output_dir / f"{filepath.stem}_stegseek"
     out_dir.mkdir(exist_ok=True)
     out_file = out_dir / "stegseek_out"
     
@@ -342,15 +359,17 @@ def analyze_stegseek(filepath, wordlist=None):
         core.log_event(len(core.event_log), "stegseek", "error", str(e))
 
 
-def analyze_outguess(filepath):
+def analyze_outguess(filepath, output_dir=None):
     """Ekstraksi dengan outguess (JPEG)."""
+    if output_dir is None:
+        output_dir = filepath.parent
     if not core.AVAILABLE_TOOLS.get('outguess'):
         core.log_tool("outguess", "⏭ Skipped", "tidak terinstall")
         return
     
     found_before = len(core.found_flags_set)
     print(f"{Fore.GREEN}[OUTGUESS] Ekstraksi...{Style.RESET_ALL}")
-    out_dir = filepath.parent / f"{filepath.stem}_outguess"
+    out_dir = output_dir / f"{filepath.stem}_outguess"
     out_dir.mkdir(exist_ok=True)
     out_file = out_dir / "outguess.txt"
     
@@ -376,8 +395,10 @@ def analyze_outguess(filepath):
         core.log_event(len(core.event_log) + 1, "outguess", "error", str(e))
 
 
-def analyze_pngcheck(filepath):
+def analyze_pngcheck(filepath, output_dir=None):
     """Validasi struktur PNG."""
+    if output_dir is None:
+        output_dir = filepath.parent
     if not core.AVAILABLE_TOOLS.get('pngcheck'):
         return
     
@@ -394,13 +415,15 @@ def analyze_pngcheck(filepath):
         print(f"{Fore.RED}[PNGCHECK] Gagal: {e}{Style.RESET_ALL}")
 
 
-def analyze_jpseek(filepath):
+def analyze_jpseek(filepath, output_dir=None):
     """JPEG steganalysis dengan jpseek/jphs."""
+    if output_dir is None:
+        output_dir = filepath.parent
     tool = next((t for t in ['jpseek', 'jphs'] if core.AVAILABLE_TOOLS.get(t)), None)
     if not tool:
         return
     
-    out_dir = filepath.parent / f"{filepath.stem}_jpsteg"
+    out_dir = output_dir / f"{filepath.stem}_jpsteg"
     out_dir.mkdir(exist_ok=True)
     
     try:
@@ -412,8 +435,10 @@ def analyze_jpseek(filepath):
         print(f"{Fore.RED}[JPSTEG] Gagal: {e}{Style.RESET_ALL}")
 
 
-def analyze_exif_deep(filepath):
+def analyze_exif_deep(filepath, output_dir=None):
     """EXIF metadata mendalam dengan exiftool."""
+    if output_dir is None:
+        output_dir = filepath.parent
     print(f"{Fore.GREEN}[EXIF-DEEP] EXIF metadata mendalam...{Style.RESET_ALL}")
     found_before = len(core.found_flags_set)
     
@@ -425,11 +450,11 @@ def analyze_exif_deep(filepath):
         core.collect_base64_from_text(output)
         core.scan_text_for_flags(output, "EXIF")
         
-        exif_dir = filepath.parent / f"{filepath.stem}_exif"
+        exif_dir = output_dir / f"{filepath.stem}_exif"
         exif_dir.mkdir(exist_ok=True)
         (exif_dir / "full_exif.txt").write_text(output)
         core.add_to_summary("EXIF-EXTRACT", "Saved to 'full_exif.txt'")
-        
+
         new_flags = list(core.found_flags_set)[found_before:]
         if new_flags:
             core.log_event(len(core.event_log) + 1, "exiftool", "found", ", ".join(new_flags))
@@ -441,3 +466,35 @@ def analyze_exif_deep(filepath):
     except Exception as e:
         print(f"{Fore.RED}[EXIF-DEEP] Gagal: {e}{Style.RESET_ALL}")
         core.log_event(len(core.event_log) + 1, "exiftool", "error", str(e))
+
+
+def analyze_file(filepath, args):
+    """Dispatch stego analysis berdasarkan args."""
+    output_dir = getattr(args, 'output_dir', None)
+    if output_dir is None:
+        output_dir = Path(filepath).parent
+    else:
+        output_dir = Path(output_dir)
+
+    if args.lsb or args.auto or args.all:
+        analyze_image(filepath, deep=args.deep, alpha=args.alpha, output_dir=output_dir)
+    if getattr(args, 'zsteg', False) or args.auto or args.all:
+        analyze_zsteg(filepath, output_dir=output_dir)
+    if args.steghide or args.auto or args.all:
+        analyze_steghide(filepath, output_dir=output_dir)
+    if args.stegseek or args.auto or args.all:
+        analyze_stegseek(filepath, wordlist=args.wordlist, output_dir=output_dir)
+    if args.outguess or args.auto or args.all:
+        analyze_outguess(filepath, output_dir=output_dir)
+    if args.pngcheck or args.auto or args.all:
+        analyze_pngcheck(filepath, output_dir=output_dir)
+    if args.jpsteg or args.auto or args.all:
+        analyze_jpseek(filepath, output_dir=output_dir)
+    if args.exif or args.auto or args.all:
+        analyze_exif_deep(filepath, output_dir=output_dir)
+    if args.remap or args.all:
+        color_remapping(filepath, output_dir=output_dir)
+    if args.lsbextract or args.all:
+        extract_lsb_data(filepath, output_dir=output_dir)
+    if args.compare:
+        compare_images(filepath, args.compare, output_dir=output_dir)

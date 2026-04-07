@@ -11,10 +11,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from . import core
 
 
-def analyze_registry(filepath):
+def analyze_registry(filepath, output_dir=None):
     """Baca .reg, decode nilai hex:, cari flag tersembunyi."""
+    if output_dir is None:
+        output_dir = filepath.parent
     print(f"{Fore.GREEN}[REGISTRY] Analisis Windows Registry file...{Style.RESET_ALL}")
-    out_dir = filepath.parent / f"{filepath.stem}_registry"
+    out_dir = output_dir / f"{filepath.stem}_registry"
     out_dir.mkdir(exist_ok=True)
     
     try:
@@ -113,10 +115,12 @@ def analyze_registry(filepath):
     print(f"{Fore.GREEN}[REGISTRY] Selesai. Output: {out_dir.name}{Style.RESET_ALL}")
 
 
-def analyze_log(filepath):
+def analyze_log(filepath, output_dir=None):
     """Analisis web server log — IP freq, attack pattern, flag di URL."""
+    if output_dir is None:
+        output_dir = filepath.parent
     print(f"{Fore.GREEN}[LOG] Analisis web server log...{Style.RESET_ALL}")
-    out_dir = filepath.parent / f"{filepath.stem}_log_analysis"
+    out_dir = output_dir / f"{filepath.stem}_log_analysis"
     out_dir.mkdir(exist_ok=True)
     
     try:
@@ -297,10 +301,12 @@ def analyze_log(filepath):
     print(f"{Fore.GREEN}[LOG] Selesai. Output: {out_dir.name}{Style.RESET_ALL}")
 
 
-def analyze_autorun(filepath):
+def analyze_autorun(filepath, output_dir=None):
     """Parse .inf / autorun.inf, deteksi reverse string & encoding di komentar."""
+    if output_dir is None:
+        output_dir = filepath.parent
     print(f"{Fore.GREEN}[AUTORUN] Analisis autorun/INF file...{Style.RESET_ALL}")
-    out_dir = filepath.parent / f"{filepath.stem}_autorun"
+    out_dir = output_dir / f"{filepath.stem}_autorun"
     out_dir.mkdir(exist_ok=True)
     
     try:
@@ -354,10 +360,12 @@ def analyze_autorun(filepath):
     print(f"{Fore.GREEN}[AUTORUN] Selesai.{Style.RESET_ALL}")
 
 
-def crack_zip(filepath, wordlist_path=None):
+def crack_zip(filepath, wordlist_path=None, output_dir=None):
     """Coba buka ZIP: tanpa password → wordlist → fcrackzip."""
+    if output_dir is None:
+        output_dir = filepath.parent
     print(f"{Fore.GREEN}[ZIP-CRACK] Analisis ZIP terproteksi...{Style.RESET_ALL}")
-    out_dir = filepath.parent / f"{filepath.stem}_zipcrack"
+    out_dir = output_dir / f"{filepath.stem}_zipcrack"
     out_dir.mkdir(exist_ok=True)
     
     print(f"{Fore.CYAN}[ZIP-CRACK] Step 1: Coba ekstrak tanpa password...{Style.RESET_ALL}")
@@ -469,7 +477,7 @@ def analyze_pcap_basic(filepath):
     try:
         result = subprocess.run(["capinfos", str(filepath)], capture_output=True, text=True, timeout=30)
         print(f"{Fore.CYAN}{result.stdout}{Style.RESET_ALL}")
-        (filepath.parent / f"{filepath.stem}_pcap_info.txt").write_text(result.stdout)
+        (output_dir / f"{filepath.stem}_pcap_info.txt").write_text(result.stdout)
         core.collect_base64_from_text(result.stdout)
     except Exception as e:
         print(f"{Fore.RED}[PCAP] Gagal: {e}{Style.RESET_ALL}")
@@ -496,10 +504,12 @@ def analyze_pcap_full(filepath):
         pcap.reconstruct_streams(filepath)
 
 
-def analyze_disk_image(filepath):
+def analyze_disk_image(filepath, output_dir=None):
     """Analisis disk image."""
+    if output_dir is None:
+        output_dir = filepath.parent
     print(f"{Fore.GREEN}[DISK] Analisis disk image...{Style.RESET_ALL}")
-    out_dir = filepath.parent / f"{filepath.stem}_disk_analysis"
+    out_dir = output_dir / f"{filepath.stem}_disk_analysis"
     out_dir.mkdir(exist_ok=True)
     
     try:
@@ -525,8 +535,10 @@ def analyze_disk_image(filepath):
         core.log_tool("disk-analysis", "❌ Error", str(e))
 
 
-def analyze_memory_advanced(filepath):
+def analyze_memory_advanced(filepath, output_dir=None):
     """Advanced memory forensics dengan Volatility 3."""
+    if output_dir is None:
+        output_dir = filepath.parent
     print(f"{Fore.GREEN}[MEMORY] Advanced memory analysis...{Style.RESET_ALL}")
     
     vol_cmd = None
@@ -549,7 +561,7 @@ def analyze_memory_advanced(filepath):
         return
     
     print(f"{Fore.CYAN}[MEMORY] Menggunakan: {vol_cmd}{Style.RESET_ALL}")
-    out_dir = filepath.parent / f"{filepath.stem}_memory"
+    out_dir = output_dir / f"{filepath.stem}_memory"
     out_dir.mkdir(exist_ok=True)
     
     def run_vol(plugin, extra_args=None, label=None):
@@ -595,3 +607,29 @@ def analyze_memory_advanced(filepath):
                   ", ".join(new_flags) if new_flags else f"output: {out_dir.name}")
     core.add_to_summary("MEMORY-DONE", f"Output: '{out_dir.name}'")
     print(f"{Fore.GREEN}[MEMORY] Selesai. Output: {out_dir.name}{Style.RESET_ALL}")
+
+
+def analyze_file(filepath, args):
+    """Dispatch forensics analysis berdasarkan args."""
+    output_dir = getattr(args, 'output_dir', None)
+    if output_dir is None:
+        output_dir = Path(filepath).parent
+    else:
+        output_dir = Path(output_dir)
+    ext = Path(filepath).suffix.lower()
+
+    if args.reg or (ext == ".reg" and args.auto):
+        analyze_registry(filepath, output_dir=output_dir)
+    if args.log or (ext in [".log", ".txt"] and args.auto):
+        analyze_log(filepath, output_dir=output_dir)
+    if args.autorun or (ext == ".inf" and args.auto):
+        analyze_autorun(filepath, output_dir=output_dir)
+    if args.zipcrack or (ext == ".zip" and args.auto):
+        crack_zip(filepath, wordlist_path=args.wordlist, output_dir=output_dir)
+    if args.disk:
+        analyze_disk_image(filepath, output_dir=output_dir)
+    if args.memory or args.volatility:
+        analyze_memory_advanced(filepath, output_dir=output_dir)
+    if args.windows or (ext == ".evtx" and args.auto):
+        from .report import generate_terminal_report
+        analyze_log(filepath, output_dir=output_dir)

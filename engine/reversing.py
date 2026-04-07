@@ -52,7 +52,7 @@ def try_unpack_upx(filepath, output_dir):
     """Unpack UPX packed binary."""
     print(f"\n{Fore.CYAN}[REVERSING] Attempting UPX unpack...{Style.RESET_ALL}")
     
-    output_path = output_dir / f"{filepath.stem}_unpacked"
+    output_path = out_dir / f"{filepath.stem}_unpacked"
     
     if not core.AVAILABLE_TOOLS.get("upx", False):
         result = subprocess.run("which upx", shell=True, capture_output=True, text=True)
@@ -112,26 +112,32 @@ def strings_analysis(filepath, min_len=6):
     return output
 
 
-def objdump_analysis(filepath):
+def objdump_analysis(filepath, output_dir=None):
     """Analisis binary ELF dengan objdump."""
-    print(f"\n{Fore.CYAN}[REVERSING] Analyzing with objdump...{Style.RESET_ALL}")
+    from pathlib import Path
+    if output_dir is None:
+        output_dir = filepath.parent
+    else:
+        output_dir = Path(output_dir)
     
+    print(f"\n{Fore.CYAN}[REVERSING] Analyzing with objdump...{Style.RESET_ALL}")
+
     with open(filepath, 'rb') as f:
         header = f.read(4)
         if header != b'\x7fELF':
             print(f"{Fore.YELLOW}  Not an ELF file, skipping objdump.{Style.RESET_ALL}")
             return
-    
+
     functions = ['main', 'start', 'entry', 'init', 'fini']
-    output_dir = filepath.parent / f"{filepath.stem}_objdump"
-    output_dir.mkdir(exist_ok=True)
+    out_dir = out_dir / f"{filepath.stem}_objdump"
+    out_dir.mkdir(exist_ok=True)
     
     for func in functions:
         cmd = f"objdump -d '{filepath}' | grep -A 20 '<{func}>:'"
         output = run_cmd(cmd, timeout=30)
         
         if output and '<main>:' not in output or func != 'main':
-            output_file = output_dir / f"{func}.asm"
+            output_file = out_dir / f"{func}.asm"
             output_file.write_text(output)
             print(f"{Fore.GREEN}  ✓ Disassembled {func}() → {output_file}{Style.RESET_ALL}")
     
@@ -142,23 +148,29 @@ def objdump_analysis(filepath):
     print(f"{Fore.BLUE}  Found {len(functions)} functions in .text section{Style.RESET_ALL}")
     
     if functions:
-        func_file = output_dir / "functions.txt"
+        func_file = out_dir / "functions.txt"
         func_file.write_text('\n'.join(functions))
         print(f"{Fore.GREEN}  ✓ Function list saved to: {func_file}{Style.RESET_ALL}")
 
 
-def readelf_analysis(filepath):
+def readelf_analysis(filepath, output_dir=None):
     """Analisis struktur ELF dengan readelf."""
-    print(f"\n{Fore.CYAN}[REVERSING] Analyzing with readelf...{Style.RESET_ALL}")
+    from pathlib import Path
+    if output_dir is None:
+        output_dir = filepath.parent
+    else:
+        output_dir = Path(output_dir)
     
+    print(f"\n{Fore.CYAN}[REVERSING] Analyzing with readelf...{Style.RESET_ALL}")
+
     with open(filepath, 'rb') as f:
         header = f.read(4)
         if header != b'\x7fELF':
             print(f"{Fore.YELLOW}  Not an ELF file, skipping readelf.{Style.RESET_ALL}")
             return
-    
-    output_dir = filepath.parent / f"{filepath.stem}_readelf"
-    output_dir.mkdir(exist_ok=True)
+
+    out_dir = out_dir / f"{filepath.stem}_readelf"
+    out_dir.mkdir(exist_ok=True)
     
     analyses = {
         "headers": "ELF headers",
@@ -173,7 +185,7 @@ def readelf_analysis(filepath):
         cmd = f"readelf -{name[0]} '{filepath}'"
         output = run_cmd(cmd, timeout=30)
         
-        output_file = output_dir / f"{name}.txt"
+        output_file = out_dir / f"{name}.txt"
         output_file.write_text(output)
         print(f"{Fore.GREEN}  ✓ {desc} saved to: {output_file}{Style.RESET_ALL}")
         
@@ -212,7 +224,7 @@ def ghidra_analysis(filepath, output_dir):
         print(f"{Fore.RED}  ✗ Ghidra analyzeHeadless not found at: {ghidra_path}{Style.RESET_ALL}")
         return
     
-    project_dir = output_dir / "ghidra_project"
+    project_dir = out_dir / "ghidra_project"
     project_name = filepath.stem
     
     print(f"{Fore.BLUE}  Running Ghidra analysis (this may take a while)...{Style.RESET_ALL}")
@@ -316,13 +328,17 @@ def xor_analysis_on_binary(filepath, output_dir):
 
 def reversing_pipeline(filepath, args):
     """Full reversing pipeline untuk binary analysis."""
+    from pathlib import Path
+    from . import core
+    
+    output_base = getattr(args, 'output_dir', filepath.parent)
+    output_dir = Path(output_base) / f"{filepath.stem}_reversing"
+    output_dir.mkdir(exist_ok=True)
+    
     print(f"\n{Fore.MAGENTA}{'=' * 60}")
     print(f"REVERSING ANALYSIS: {filepath.name}")
     print(f"{'=' * 60}{Style.RESET_ALL}")
-    
-    output_dir = filepath.parent / f"{filepath.stem}_reversing"
-    output_dir.mkdir(exist_ok=True)
-    
+
     packers = detect_packer(filepath)
     
     unpacked = filepath
@@ -332,17 +348,22 @@ def reversing_pipeline(filepath, args):
             unpacked = unpacked_path
     
     strings_output = strings_analysis(unpacked)
-    
+
     xor_results = xor_analysis_on_binary(unpacked, output_dir)
-    
+
     if not getattr(args, 'skip_objdump', False):
-        objdump_analysis(unpacked)
-    
+        objdump_analysis(unpacked, output_dir=output_base)
+
     if not getattr(args, 'skip_readelf', False):
-        readelf_analysis(unpacked)
-    
+        readelf_analysis(unpacked, output_dir=output_base)
+
     if getattr(args, 'ghidra', False):
         ghidra_analysis(unpacked, output_dir)
     
     core.add_to_summary("REVERSING-DONE", f"Output: '{output_dir.name}'")
     print(f"\n{Fore.GREEN}[REVERSING] Analysis complete. Check: {output_dir}{Style.RESET_ALL}")
+
+
+def analyze_file(filepath, args):
+    """Alias untuk reversing_pipeline."""
+    reversing_pipeline(filepath, args)

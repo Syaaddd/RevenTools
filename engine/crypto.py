@@ -623,5 +623,23 @@ def decode_encoding_chain(candidate):
     
     if not results:
         print(f"  {Fore.YELLOW}Tidak bisa decode encoding chain.{Style.RESET_ALL}")
-    
+
     return results
+
+
+def analyze_file(filepath, args):
+    """Dispatch crypto analysis berdasarkan args."""
+    content = Path(filepath).read_text(errors="ignore")
+
+    if args.rsa or args.auto or args.all:
+        rsa_auto_attack(content, filepath)
+    if args.vigenere or args.auto or args.all:
+        analyze_vigenere(content)
+    if args.classic or args.auto or args.all:
+        analyze_classic_cipher(content)
+    if args.xor_plain or args.xor_key or args.auto:
+        known = args.xor_plain.encode() if args.xor_plain else b'CTF{'
+        key = args.xor_key if args.xor_key else None
+        analyze_xor(filepath, known, key)
+    if args.encoding_chain or args.auto or args.all:
+        decode_encoding_chain(content)

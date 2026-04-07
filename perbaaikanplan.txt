@@ -1,0 +1,93 @@
+Masalahnya jelas: RAVEN tidak menemukan file `crackme_02` karena ia mencari di direktori yang berbeda, bukan di current working directory.
+
+Kemungkinan penyebabnya ada di bagian resolusi path di `raven.sh` atau `core.py` — file dicari relatif terhadap home atau folder engine, bukan dari `$PWD`.
+
+Mari kita lihat dulu kode yang relevan.Kamu hanya upload README.md, jadi saya perlu tebak dari error-nya. Tapi dari output yang kamu kasih, masalahnya sudah cukup jelas.
+
+---
+
+## Root Cause
+
+Pesan error: `[!] File tidak ditemukan: crackme_02`
+
+Padahal `ls` menunjukkan file `crackme_02` **ada** di folder tersebut. Artinya RAVEN mencari file dengan `os.path.exists(file)` tapi **tidak pakai absolute path / tidak resolve dari CWD yang benar**.
+
+Kemungkinan besar di `raven.sh`, argumen file di-pass ke Python engine tapi working directory sudah berubah (karena `cd ~/.raven/engine` atau sejenisnya sebelum memanggil Python).
+
+---
+
+## Fix
+
+### 1. Fix di `raven.sh` — resolve path sebelum `cd`
+
+Cari bagian di `raven.sh` yang mirip seperti ini:
+
+```bash
+# SEBELUM (kemungkinan seperti ini)
+cd ~/.raven/engine
+python3 -m engine "$@"
+```
+
+Ubah menjadi:
+
+```bash
+# SESUDAH — resolve semua file argument ke absolute path dulu
+ARGS=()
+for arg in "$@"; do
+    if [[ -f "$arg" ]]; then
+        ARGS+=("$(realpath "$arg")")
+    else
+        ARGS+=("$arg")
+    fi
+done
+
+cd ~/.raven/engine
+python3 -m engine "${ARGS[@]}"
+```
+
+### 2. Fix di `core.py` — fallback ke absolute path
+
+Di `core.py`, cari fungsi yang mengecek keberadaan file (kemungkinan di `main()` atau fungsi init), lalu tambahkan resolve path:
+
+```python
+# SEBELUM
+if not os.path.exists(filepath):
+    print(f"[!] File tidak ditemukan: {filepath}")
+    return
+
+# SESUDAH
+import os
+
+filepath = os.path.abspath(filepath)  # ← tambah baris ini
+if not os.path.exists(filepath):
+    print(f"[!] File tidak ditemukan: {filepath}")
+    return
+```
+
+### 3. Workaround cepat (tanpa edit kode)
+
+Kalau kamu mau langsung jalan sekarang, gunakan **absolute path**:
+
+```bash
+raven "$(pwd)/crackme_02"
+```
+
+atau:
+
+```bash
+raven /mnt/c/Users/SMA\ N\ 4\ Tegal/Downloads/LKS/CTF/ADBCTF/Reverse\ Engineering/XOR\ Secrets/crackme_02
+```
+
+---
+
+## Verifikasi Fix
+
+Setelah edit `raven.sh`, test dengan:
+
+```bash
+# dari folder manapun
+cd ~
+raven /path/ke/crackme_02
+```
+
+Kalau mau saya bantu edit langsung file `raven.sh`-nya, upload filenya ke sini dan saya akan terapkan fix-nya.

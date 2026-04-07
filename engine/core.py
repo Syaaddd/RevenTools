@@ -339,5 +339,53 @@ def deobfuscate_string(s):
             results['hex'] = bytes.fromhex(clean_hex).decode('utf-8', errors='ignore')
     except:
         pass
-    
+
     return results
+
+
+def auto_detect_and_run(filepath, args):
+    """Auto-detect tipe file dan jalankan tools yang sesuai."""
+    from pathlib import Path
+    fp = Path(filepath)
+    ext = fp.suffix.lower()
+
+    # Image files
+    if ext in [".png", ".jpg", ".jpeg", ".gif", ".bmp"]:
+        from . import stego
+        stego.analyze_file(fp, args)
+
+    # PCAP files
+    elif ext in [".pcap", ".pcapng", ".cap"]:
+        from . import pcap
+        pcap.analyze_file(fp, args)
+
+    # Binary files
+    elif ext in [".elf", ".exe", ".bin", ".out"] or not ext:
+        # Cek apakah ELF/PE binary
+        header = fp.read_bytes()[:4]
+        if header[:2] == b'\x7fELF' or header[:2] == b'MZ':
+            from . import reversing
+            reversing.analyze_file(fp, args)
+
+    # Text files
+    elif ext in [".txt", ".csv", ".md", ".json", ".xml"]:
+        content = fp.read_text(errors="ignore")
+        # Check for crypto patterns
+        if any(kw in content.lower() for kw in ["rsa", "n=", "e=", "ciphertext", "encrypted"]):
+            from . import crypto
+            crypto.analyze_file(fp, args)
+
+    # Log files
+    elif ext in [".log"]:
+        from . import forensics
+        forensics.analyze_file(fp, args)
+
+    # Registry files
+    elif ext == ".reg":
+        from . import forensics
+        forensics.analyze_file(fp, args)
+
+    # Archive files
+    elif ext in [".zip", ".rar", ".7z"]:
+        from . import forensics
+        forensics.analyze_file(fp, args)

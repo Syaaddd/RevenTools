@@ -211,14 +211,48 @@ def generate_all_reports(filepath, flags, extractions, output_dir=None):
     """Generate semua format report (terminal, Markdown, JSON)."""
     # Terminal (stdout)
     generate_terminal_report(filepath, flags, extractions)
-    
+
     # Markdown file
     md_file = generate_markdown_report(filepath, flags, extractions, output_dir)
-    
+
     # JSON file
     json_file = generate_json_report(filepath, flags, extractions, output_dir)
-    
+
     return {
         "markdown": md_file,
         "json": json_file,
     }
+
+
+class WriteupBuilder:
+    """Build writeup dari tool_log dan flag_summary."""
+
+    def __init__(self, tool_log, flag_summary):
+        self.tool_log = tool_log
+        self.flag_summary = flag_summary
+
+    def print_terminal_summary(self):
+        """Print ringkasan ke terminal."""
+        if not self.tool_log and not self.flag_summary:
+            return
+
+        print(f"\n{Fore.CYAN}{'=' * 60}")
+        print(f"  RAVEN v5.1 — ANALYSIS SUMMARY")
+        print(f"{'=' * 60}{Style.RESET_ALL}\n")
+
+        if self.flag_summary:
+            print(f"  {Fore.GREEN}🚩 FLAGS FOUND: {len(self.flag_summary)}{Style.RESET_ALL}")
+            for i, flag in enumerate(self.flag_summary, 1):
+                print(f"  {i}. {flag}")
+            print()
+
+        if self.tool_log:
+            success = sum(1 for t in self.tool_log if "Found" in t.get("status", ""))
+            total = len(self.tool_log)
+            print(f"  {Fore.YELLOW}TOOLS EXECUTED: {total} total, {success} found results{Style.RESET_ALL}")
+            for t in self.tool_log[:10]:  # Show first 10
+                status_icon = "✅" if "Found" in t.get("status", "") else "⬜"
+                print(f"  {status_icon} {t['tool']}: {t['status']}")
+            if total > 10:
+                print(f"  ... and {total - 10} more tools")
+            print()

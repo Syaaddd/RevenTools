@@ -19,12 +19,12 @@ def _tshark(filepath, *args, timeout=60):
         return ""
 
 
-def extract_http_objects(filepath):
+def extract_http_objects(filepath, output_dir=None):
     """Ekstrak HTTP objects dari PCAP."""
     if not core.AVAILABLE_TOOLS.get('tshark'):
         return
     
-    out_dir = filepath.parent / f"{filepath.stem}_http_objects"
+    out_dir = output_dir / f"{filepath.stem}_http_objects"
     out_dir.mkdir(exist_ok=True)
     
     try:
@@ -39,7 +39,7 @@ def extract_http_objects(filepath):
         print(f"{Fore.RED}[PCAP] HTTP gagal: {e}{Style.RESET_ALL}")
 
 
-def extract_dns_queries(filepath):
+def extract_dns_queries(filepath, output_dir=None):
     """Ekstrak DNS queries dari PCAP."""
     if not core.AVAILABLE_TOOLS.get('tshark'):
         return
@@ -47,13 +47,13 @@ def extract_dns_queries(filepath):
     output = _tshark(filepath, "-T", "fields", "-e", "dns.qry.name", "-Y", "dns", "-q")
     if output.strip():
         queries = [q for q in output.split('\n') if q]
-        (filepath.parent / f"{filepath.stem}_dns_queries.txt").write_text(output)
+        (output_dir / f"{filepath.stem}_dns_queries.txt").write_text(output)
         core.collect_base64_from_text(output)
         core.scan_text_for_flags(output, "PCAP-DNS")
         core.add_to_summary("PCAP-DNS", f"{len(queries)} queries saved")
 
 
-def extract_credentials(filepath):
+def extract_credentials(filepath, output_dir=None):
     """Ekstrak credentials (FTP, HTTP-Auth, Telnet) dari PCAP."""
     if not core.AVAILABLE_TOOLS.get('tshark'):
         return
@@ -67,7 +67,7 @@ def extract_credentials(filepath):
             creds.append((proto, out.strip()))
     
     if creds:
-        creds_file = filepath.parent / f"{filepath.stem}_credentials.txt"
+        creds_file = output_dir / f"{filepath.stem}_credentials.txt"
         with open(creds_file, 'w') as f:
             for proto, data in creds:
                 f.write(f"{proto}:\n{data}\n\n")
@@ -87,12 +87,12 @@ def search_pcap_flags(filepath):
         core.scan_text_for_flags(out, f"PCAP-{label.upper()}")
 
 
-def reconstruct_streams(filepath):
+def reconstruct_streams(filepath, output_dir=None):
     """Reconstruct TCP streams dari PCAP."""
     if not core.AVAILABLE_TOOLS.get('tshark'):
         return
     
-    out_dir = filepath.parent / f"{filepath.stem}_streams"
+    out_dir = output_dir / f"{filepath.stem}_streams"
     out_dir.mkdir(exist_ok=True)
     
     nums = set(_tshark(filepath, "-T", "fields", "-e", "tcp.stream", "-q").strip().split('\n'))
@@ -113,7 +113,7 @@ def reconstruct_streams(filepath):
     core.add_to_summary("PCAP-STREAMS", f"{min(len(nums), 10)} streams → '{out_dir.name}'")
 
 
-def analyze_pcap_timeline(filepath):
+def analyze_pcap_timeline(filepath, output_dir=None):
     """Analisis timeline HTTP dari PCAP."""
     if not core.AVAILABLE_TOOLS.get('tshark'):
         return
@@ -124,11 +124,11 @@ def analyze_pcap_timeline(filepath):
         return
     
     lines = out.strip().split('\n')
-    (filepath.parent / f"{filepath.stem}_timeline.txt").write_text("\n".join(lines))
+    (output_dir / f"{filepath.stem}_timeline.txt").write_text("\n".join(lines))
     core.add_to_summary("PCAP-TIMELINE", f"{len(lines)} requests")
 
 
-def detect_attack_patterns(filepath):
+def detect_attack_patterns(filepath, output_dir=None):
     """Deteksi attack patterns di PCAP."""
     if not core.AVAILABLE_TOOLS.get('tshark'):
         return
@@ -148,7 +148,7 @@ def detect_attack_patterns(filepath):
             core.add_to_summary("PCAP-ATTACK", f"{name}: {len(matches)}")
 
 
-def analyze_post_data(filepath):
+def analyze_post_data(filepath, output_dir=None):
     """Analisis POST data dari PCAP."""
     if not core.AVAILABLE_TOOLS.get('tshark'):
         return
@@ -161,7 +161,7 @@ def analyze_post_data(filepath):
     core.scan_text_for_flags(out, "PCAP-POST")
 
 
-def check_unusual_ports(filepath):
+def check_unusual_ports(filepath, output_dir=None):
     """Cek port tidak biasa di PCAP."""
     if not core.AVAILABLE_TOOLS.get('tshark'):
         return
@@ -189,7 +189,7 @@ def analyze_extracted_file(filepath):
         pass
 
 
-def analyze_dns_tunneling(filepath):
+def analyze_dns_tunneling(filepath, output_dir=None):
     """Deteksi DNS tunneling dari PCAP."""
     if not core.AVAILABLE_TOOLS.get('tshark'):
         return
@@ -244,3 +244,26 @@ def analyze_dns_tunneling(filepath):
         core.add_to_summary("DNS-TUNNEL", f"{len(suspicious_queries)} suspicious queries")
     else:
         print(f"  {Fore.YELLOW}Tidak ada indikasi DNS tunneling.{Style.RESET_ALL}")
+
+
+def analyze_file(filepath, args):
+    """Dispatch PCAP analysis berdasarkan args."""
+    from pathlib import Path
+    output_dir = getattr(args, 'output_dir', None)
+    if output_dir is None:
+        output_dir = Path(filepath).parent
+    else:
+        output_dir = Path(output_dir)
+    
+    extract_http_objects(filepath, output_dir=output_dir)
+    extract_dns_queries(filepath, output_dir=output_dir)
+    extract_credentials(filepath, output_dir=output_dir)
+    search_pcap_flags(filepath)
+    reconstruct_streams(filepath, output_dir=output_dir)
+    analyze_pcap_timeline(filepath, output_dir=output_dir)
+    detect_attack_patterns(filepath, output_dir=output_dir)
+    analyze_post_data(filepath, output_dir=output_dir)
+    check_unusual_ports(filepath, output_dir=output_dir)
+
+    if args.dns_tunnel:
+        analyze_dns_tunneling(filepath, output_dir=output_dir)

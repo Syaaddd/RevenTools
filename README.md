@@ -5,7 +5,6 @@
 **Toolkit Otomasi CTF Multi-Kategori yang Cerdas**
 
 [![Version](https://img.shields.io/badge/version-v5.1-blue?style=for-the-badge&logo=github)](https://github.com/Syaaddd/raven-ctf)
-
 [![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](LICENSE)
 [![Shell](https://img.shields.io/badge/shell-bash-orange?style=for-the-badge&logo=gnu-bash)](https://www.gnu.org/software/bash/)
 [![Python](https://img.shields.io/badge/python-3.8%2B-yellow?style=for-the-badge&logo=python)](https://www.python.org/)
@@ -14,7 +13,7 @@
 
 *Alat otomatis untuk semua kategori CTF — forensics, steganografi, kriptografi, network, memory forensics, dan deteksi flag* 🚩
 
-[📦 Instalasi](#-instalasi) · [▶️ Penggunaan](#%EF%B8%8F-penggunaan) · [📁 Output](#-output-folder) · [🆕 Changelog](#-changelog)
+[📦 Instalasi](#-instalasi) · [▶️ Penggunaan](#️-penggunaan) · [📁 Output](#-output-folder) · [🆕 Changelog](#-changelog)
 
 </div>
 
@@ -35,13 +34,13 @@ RAVEN v5.1 hadir dengan arsitektur modular yang lebih clean dan maintainable:
 **Struktur Engine:**
 ```
 engine/
-├── core.py (~350 baris)         ← Globals, utils, flag scanner, event_log
-├── stego.py (~450 baris)        ← Steganografi (zsteg, steghide, LSB, bitplane)
-├── forensics.py (~600 baris)    ← Disk, memory, registry, log, autorun
-├── crypto.py (~630 baris)       ← RSA, XOR, Vigenere, classic ciphers
-├── reversing.py (~350 baris)    ← Strings, objdump, readelf, packer, Ghidra
-├── pcap.py (~250 baris)         ← PCAP analysis (tshark, DNS tunneling)
-└── report.py (~225 baris)       ← WriteupBuilder (terminal/Markdown/JSON)
+├── core.py (~390 baris)         ← Globals, utils, flag scanner, event_log
+├── stego.py (~500 baris)        ← Steganografi (zsteg, steghide, LSB, bitplane)
+├── forensics.py (~630 baris)    ← Disk, memory, registry, log, autorun
+├── crypto.py (~650 baris)       ← RSA, XOR, Vigenere, classic ciphers
+├── reversing.py (~370 baris)    ← Strings, objdump, readelf, packer, Ghidra
+├── pcap.py (~270 baris)         ← PCAP analysis (tshark, DNS tunneling)
+└── report.py (~260 baris)       ← WriteupBuilder (terminal/Markdown/JSON)
 ```
 
 **Kategori yang didukung:**
@@ -171,7 +170,7 @@ raven -f "picoCTF{" suspicious.png
 
 ### 🤖 Mode Analisis
 
-#### 🆕 v5.0 — Interactive Menu (Default, Multi-Select)
+#### 🆕 v5.0+ — Interactive Menu (Default, Multi-Select)
 ```bash
 raven challenge.png              # Opens interactive menu
 raven file1.png file2.bin file3.elf  # Multi-file support
@@ -180,21 +179,7 @@ raven                            # Shows menu first
 
 **Menu Features:**
 - **Multi-Select**: Pilih beberapa kategori sekaligus
-  - Example: Pilih Steganografi + Crypto + Reversing untuk analisis lengkap
-- **3 TUI Modes**: 
-  - Native `select` (zero dependency) — pilih satu per satu, konfirmasi di akhir
-    ```
-    1) ⚡ Auto-detect
-    2) 🖼️  Steganografi
-    3) 🔬 Forensik Digital
-    ...
-    10) ✅ Jalankan dengan pilihan di atas
-    > Pilih nomor: 2  (✓ Steganografi ditambahkan)
-    > Pilih nomor: 4  (✓ Kriptografi ditambahkan)
-    > Pilih nomor: 10 (Menjalankan dengan 2 mode...)
-    ```
-  - `whiptail` checklist (checkbox) — Space untuk pilih, Enter untuk konfirmasi
-  - `fzf` fuzzy finder — Tab untuk multi-select, Enter untuk run
+- **3 TUI Modes**: Native `select`, `whiptail` checklist, `fzf` fuzzy finder
 - **Auto-Detect di Atas**: Mode paling atas (default ON di whiptail)
 - **Multi-File Support**: Analisis beberapa file sekaligus dalam satu sesi
 - **Smart Defaults**: Automatically selects best TUI based on available tools
@@ -206,7 +191,7 @@ raven image.png --all       # Jalankan SEMUA analisis
 raven image.png --quick     # ULTRA-FAST: strings + zsteg + stegseek + early exit
 ```
 
-### 🆕 Fitur Baru v4.0
+### 🆕 Fitur Baru v4.0+
 
 #### 🔒 Cryptography Engine
 ```bash
@@ -219,40 +204,20 @@ raven enc.bin --xor-key "DARKSIDE"      # XOR decrypt manual dengan key
 raven encoded.txt --encoding-chain      # Multi-stage decode (Base32→Binary→BitRev→B64)
 ```
 
-#### 🧠 Analisis Memori Lanjutan
-```bash
-raven dump.raw --volatility             # Volatility 3 auto-pipeline standar
-raven dump.raw --memory                 # Lanjutan: malfind + process dump + anomaly detection
-```
-
-#### 🔧 Advanced Binary Reversing (v5.0)
+#### 🔧 Advanced Binary Reversing
 ```bash
 raven binary.elf --reversing              # Full reversing pipeline
 raven binary.exe --reversing --unpack     # Auto-unpack UPX packed binary
 raven binary.elf --reversing --ghidra     # Ghidra headless analysis
-raven binary.elf --reversing --skip-objdump  # Skip objdump analysis
 ```
 
 **Reversing Features:**
 - **Packer Detection**: UPX, MPRESS, ASPack, Themida, VMProtect
 - **Auto-Unpacker**: UPX unpacking with automatic detection
 - **Strings Analysis**: Extract strings, search for flags, URLs, IPs, secrets
-- **Disassembly**: objdump for ELF binaries (main, start, entry functions)
+- **Disassembly**: objdump for ELF binaries
 - **Binary Structure**: readelf analysis (headers, sections, symbols, relocations)
 - **Ghidra Integration**: Headless analyzer for advanced reverse engineering
-- **Secret Detection**: Hardcoded passwords, keys, tokens
-
-#### 💽 Advanced Disk Forensics
-```bash
-raven disk.img --ntfs                   # Recovery file terhapus di NTFS (fls/icat/strings/carving)
-raven disk.img --partition              # Analisis tabel partisi (MBR/GPT, scan hidden partition)
-```
-
-#### 🌐 Deteksi DNS Tunneling
-```bash
-raven capture.pcap --pcap              # Analisis PCAP standar
-raven capture.pcap --dns-tunnel        # Deteksi DNS tunneling + decode Base32/64/hex
-```
 
 ### 🗝️ CTF Spesifik (v3.0+)
 ```bash
@@ -307,6 +272,8 @@ export RAVEN_WORDLIST="/path/to/list"  # Path wordlist kustom
 
 ## 📁 Output Folder
 
+**Output folders dibuat di current working directory (CWD), bukan di sebelah file input.**
+
 | Folder | Kegunaan |
 |--------|----------|
 | `*_bitplanes/` | Visual bit plane (0-7) |
@@ -332,39 +299,43 @@ export RAVEN_WORDLIST="/path/to/list"  # Path wordlist kustom
 | `*_dns_tunnel/` | Hasil decode DNS tunneling |
 | `*_crypto/` | Hasil serangan kriptografi |
 | `_extracted_*/` | Hasil ekstraksi binwalk |
-| `fixed_*`, `repaired_*` | Header yang diperbaiki |
-| `*_reversing/` | Binary reversing output (v5.0) |
-| `*_objdump/` | Disassembly files (v5.0) |
-| `*_readelf/` | Binary structure analysis (v5.0) |
-| `*_strings.txt` | Extracted strings (v5.0) |
+| `*_reversing/` | Binary reversing output |
+| `*_objdump/` | Disassembly files |
+| `*_readelf/` | Binary structure analysis |
+| `*_strings.txt` | Extracted strings |
 
 ---
 
 ## ⚡ Perbandingan Versi
 
-| Fitur | v1.x | v2.0 | v3.0 | v4.0 | v5.0 |
-|-------|------|------|------|------|------|
-| **Global install** | ❌ | ❌ | ✅ | ✅ | ✅ |
-| **Interactive Menu** | ❌ | ❌ | ❌ | ❌ | ✅ Default |
-| **3 TUI Modes (select/whiptail/fzf)** | ❌ | ❌ | ❌ | ❌ | ✅ |
-| **Reversing Module** | ❌ | ❌ | ❌ | ❌ | ✅ `--reversing` |
-| **Packer Detection (UPX/etc)** | ❌ | ❌ | ❌ | ❌ | ✅ |
-| **Ghidra Integration** | ❌ | ❌ | ❌ | ❌ | ✅ `--ghidra` |
-| **Crypto engine (RSA/Vigenere/XOR)** | ❌ | ❌ | ❌ | ✅ | ✅ `--crypto` |
-| **Advanced memory analysis** | ❌ | ❌ | ❌ | ✅ | ✅ `--memory` |
-| **NTFS deleted file recovery** | ❌ | ❌ | ❌ | ✅ | ✅ `--ntfs` |
-| **Partition table scan** | ❌ | ❌ | ❌ | ✅ | ✅ `--partition` |
-| **DNS tunneling detector** | ❌ | ❌ | ❌ | ✅ | ✅ `--dns-tunnel` |
-| **Stegseek + rockyou** | ❌ | ✅ | ✅ | ✅ | ✅ |
-| **ZIP password crack** | ❌ | ❌ | ✅ | ✅ | ✅ |
-| **Registry analysis** | ❌ | ❌ | ✅ | ✅ | ✅ |
-| **Log analysis** | ❌ | ❌ | ✅ | ✅ | ✅ |
-| **Volatility wrapper** | ❌ | ❌ | ✅ | ✅ | ✅ |
-| **Deobfuscation engine** | ❌ | ❌ | ✅ | ✅ | ✅ |
-| **Fake ext detection** | ❌ | ❌ | ✅ | ✅ | ✅ |
-| **Quick Mode** | ❌ | ✅ | ✅ | ✅ | ✅ |
-| **Parallel brute force** | ❌ | ✅ 5t | ✅ 5t | ✅ 5t | ✅ 5t |
-| **Standalone .sh** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| Fitur | v1.x | v2.0 | v3.0 | v4.0 | v5.0 | v5.1 |
+|-------|------|------|------|------|------|------|
+| **Global install** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **Interactive Menu** | ❌ | ❌ | ❌ | ❌ | ✅ Default | ✅ |
+| **3 TUI Modes (select/whiptail/fzf)** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **Reversing Module** | ❌ | ❌ | ❌ | ❌ | ✅ `--reversing` | ✅ |
+| **Packer Detection (UPX/etc)** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **Ghidra Integration** | ❌ | ❌ | ❌ | ❌ | ✅ `--ghidra` | ✅ |
+| **Crypto engine (RSA/Vigenere/XOR)** | ❌ | ❌ | ❌ | ✅ | ✅ `--crypto` | ✅ |
+| **Advanced memory analysis** | ❌ | ❌ | ❌ | ✅ | ✅ `--memory` | ✅ |
+| **NTFS deleted file recovery** | ❌ | ❌ | ❌ | ✅ | ✅ `--ntfs` | ✅ |
+| **Partition table scan** | ❌ | ❌ | ❌ | ✅ | ✅ `--partition` | ✅ |
+| **DNS tunneling detector** | ❌ | ❌ | ❌ | ✅ | ✅ `--dns-tunnel` | ✅ |
+| **Modular Engine** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Event Logging** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Writeup Generation** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Output di CWD** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Enhanced Summary** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Stegseek + rockyou** | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **ZIP password crack** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **Registry analysis** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **Log analysis** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **Volatility wrapper** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **Deobfuscation engine** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **Fake ext detection** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **Quick Mode** | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Parallel brute force** | ❌ | ✅ 5t | ✅ 5t | ✅ 5t | ✅ 5t | ✅ 5t |
+| **Standalone .sh** | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ---
 
@@ -386,7 +357,6 @@ export RAVEN_WORDLIST="/path/to/list"  # Path wordlist kustom
 ## 💡 Tips & Trik
 
 - ⚡ Gunakan `--quick` untuk analisis super cepat saat kompetisi berlangsung
-<<<<<<< HEAD
 - 🎯 **Early exit** otomatis berhenti begitu flag ditemukan
 - 🔒 `--crypto` untuk otomatis menyerang semua jenis enkripsi sekaligus — RSA, Vigenere, XOR, Caesar
 - 💡 `--xor-plain` powerful untuk soal yang tahu prefix flag-nya (e.g. `--xor-plain "picoCTF{"`)
@@ -406,7 +376,7 @@ export RAVEN_WORDLIST="/path/to/list"  # Path wordlist kustom
 
 ### 🔍 About RAVEN
 
-RAVEN is a Bash + Python CTF toolkit designed to accelerate challenge analysis. From image steganography and memory forensics to network PCAPs and deobfuscation — all integrated into **a single `.sh` file**.
+RAVEN is a Bash + Python CTF toolkit designed to accelerate challenge analysis. From image steganography and memory forensics to network PCAPs and deobfuscation — all integrated into a **modular Python engine architecture**.
 
 ### 🚀 Quick Start
 
@@ -418,30 +388,21 @@ cd raven-ctf && chmod +x raven.sh
 raven challenge.png --auto    # Analyze your first challenge
 ```
 
-### Key Features (v5.0)
+### Key Features (v5.1)
 
 | Feature | Command | Description |
 |---------|---------|-------------|
-| 🎯 Interactive Menu | (default) | Multi-select: 3 TUI modes (select/whiptail/fzf), Auto-detect on top |
+| 🎯 Interactive Menu | (default) | Multi-select: 3 TUI modes (select/whiptail/fzf) |
 | 🔧 Binary Reversing | `--reversing` | strings, objdump, readelf, packer detection |
 | 📦 UPX Unpacker | `--unpack` | Auto-detect and unpack UPX packed binaries |
 | 🔬 Ghidra Integration | `--ghidra` | Headless Ghidra analysis (requires Ghidra) |
-| 🔒 Crypto Engine | `--crypto` | RSA attacks (weak/Fermat/CommonMod/Bellcore), Vigenere+acrostic, XOR KPA, Classic Cipher, Encoding Chain |
-| 🔑 RSA Attack | `--rsa` | Force RSA-only attack (use with `--crypto`) |
-| 🔤 Vigenere | `--vigenere` | Vigenere analysis + acrostic key finder |
-| ⊕ XOR KPA | `--xor-plain STR` | Known-plaintext XOR attack |
-| 📝 Classic Cipher | `--classic` | Atbash + Caesar brute force (1-25) |
-| 🔗 Encoding Chain | `--encoding-chain` | Multi-stage decoder (Base32/64/Binary/BitRev/Hex) |
+| 🔒 Crypto Engine | `--crypto` | RSA, Vigenere, XOR KPA, Classic Cipher, Encoding Chain |
 | 🧠 Adv. Memory | `--memory` | Advanced Volatility: malfind, process dump, anomaly detection |
 | 💽 NTFS Recovery | `--ntfs` | NTFS deleted file recovery (fls/icat/strings) |
-| 🗂️ Partition Scan | `--partition` | MBR/GPT partition analysis + hidden partition scan |
-| 🌐 DNS Tunnel | `--dns-tunnel` | DNS tunneling detector + Base32/64/hex chunk decoder |
-| 🔍 Stegseek | `--stegseek` | Brute-force steghide with rockyou.txt |
-| 🧠 Memory | `--volatility` | Volatility 3 auto-pipeline |
-| 🔑 Deobfuscate | `--deobfuscate` | ROT13, Caesar, Atbash, Base64, Hex, reverse |
-| 📁 Fake Ext | `--folder` | Detect and fix mismatched file extensions |
-| 📋 Registry | `--reg` | Windows registry hex decoder |
-| 🌐 Log | `--log` | Web server log attacker detection |
+| 🗂️ Partition Scan | `--partition` | MBR/GPT partition analysis |
+| 🌐 DNS Tunnel | `--dns-tunnel` | DNS tunneling detector + decoder |
+| 📁 Output di CWD | (auto) | Output folders created in current working directory |
+| 📊 Enhanced Summary | (auto) | Full analysis summary with flags, tools, and folders |
 
 ### Environment Variables
 
@@ -458,12 +419,12 @@ export RAVEN_WORDLIST="/path/to/list"    # Custom wordlist path
 > **Theme: Modular Engine + Writeup Generation**
 
 **🆕 New Features**
-- **Modular Engine Architecture** — Python engine dipisah dari 1 heredoc (6360 baris) menjadi 9 file modular (~2860 baris total)
+- **Modular Engine Architecture** — Python engine dipisah dari 1 heredoc (6360 baris) menjadi 9 file modular (~3000 baris total)
 - **Event Logging System** — Tracking setiap tool execution untuk writeup generation
-- **Writeup-Ready Output** — 3 format output:
-  - Terminal: Enhanced report dengan timeline dan writeup snippet
-  - Markdown: Auto-generated `*_writeup.md`
-  - JSON: `*_report.json` untuk automation pipeline
+- **Writeup-Ready Output** — 3 format output: Terminal, Markdown, JSON
+- **Output di CWD** — Semua output folders dibuat di current working directory, bukan di sebelah file input
+- **Enhanced Summary** — Ringkasan lengkap di akhir: flags yang ditemukan, tools yang dijalankan, output folders
+- **Path Resolution** — File arguments di-resolve ke absolute path sebelum `cd`, jadi relative path bekerja dari mana saja
 - **Natural Code Style** — Docstring 1 baris, nama variabel singkat, inline logic, tidak AI-looking
 
 **📁 Engine Structure**
@@ -491,25 +452,11 @@ engine/
 
 **🆕 New Features**
 - `--interactive` — Interactive category menu with **multi-select support** (default mode).
-- **Auto-Detect on Top**: Moved to position #1 for quick access.
-- **3 TUI Modes with Multi-Select**: 
-  - Native bash `select` — select multiple modes one by one, confirm with "Run" option
-  - `whiptail` checklist — checkbox interface (Space to select, Enter to confirm)
-  - `fzf` fuzzy finder — Tab for multi-select, Enter to run
-- **Multi-File Support**: Analyze multiple files in one session (`raven file1.png file2.elf`)
+- **3 TUI Modes with Multi-Select**: Native bash `select`, `whiptail` checklist, `fzf` fuzzy finder
+- **Multi-File Support**: Analyze multiple files in one session
 - `--reversing` — Full binary reversing pipeline: strings, objdump, readelf, Ghidra integration.
 - `--unpack` — Auto-unpack packed binaries (UPX detection and unpacking).
-- `--ghidra` — Ghidra headless analyzer integration (requires Ghidra installation).
-- **Packer Detection**: Automatic detection of UPX, MPRESS, ASPack, Themida, VMProtect.
-- **Secret Detection**: Search for hardcoded passwords, keys, tokens in binaries.
-- Smart mode detection: Opens interactive menu if no specific mode flag provided.
-- Backwards compatible: All existing flags (`--auto`, `--quick`, etc.) still work.
-
-**🔧 Improvements**
-- Version bumped to v5.0 across all components (banner, Python engine, README).
-- Enhanced mode dispatcher with intelligent TUI auto-detection.
-- Reversing module outputs to dedicated `*_reversing/`, `*_objdump/`, `*_readelf/` folders.
-- Strings analysis saves to `*_strings.txt` with flag/URL/IP/email extraction.
+- **Packer Detection**: UPX, MPRESS, ASPack, Themida, VMProtect.
 
 ---
 
@@ -517,41 +464,21 @@ engine/
 > **Tema: Crypto Engine + Forensics Disk & Memori Lanjutan**
 
 **🆕 Fitur Baru**
-- `--crypto` — Mesin kriptografi lengkap: auto-detect & serang RSA (weak prime/Fermat/Common-Modulus/Bellcore-CRT), Vigenere + akrostik key finder, XOR KPA, Classic Cipher (brute Atbash/Caesar), dan decoder Encoding Chain multi-tahap.
-- `--rsa` — Paksa mode serangan RSA saja (gunakan bersama `--crypto`).
-- `--vigenere` — Paksa analisis Vigenere dengan akrostik key finder.
-- `--classic` — Brute force Atbash + Caesar (1-25 shift).
-- `--xor-plain STR` — Serangan XOR known-plaintext (prefix default: `CTF{`).
-- `--xor-key STR` — Dekripsi XOR langsung dengan key yang diberikan.
-- `--crypto-key STR` — Key manual untuk Vigenere/Caesar.
-- `--encoding-chain` — Decoder multi-tahap: Base32 → Binary → BitRev → Base64 → Hex, dan kombinasinya.
+- `--crypto` — Mesin kriptografi lengkap: RSA, Vigenere, XOR KPA, Classic Cipher, Encoding Chain.
 - `--memory` — Analisis Volatility lanjutan: malfind, dump proses, deteksi anomali.
-- `--ntfs` — Recovery file terhapus di NTFS menggunakan `fls`/`icat`/strings/carving.
-- `--partition` — Analisis tabel partisi (MBR/GPT), mount tiap partisi, scan data tersembunyi.
-- `--dns-tunnel` — Deteksi DNS tunneling: decode chunk Base32/64/hex dari data query DNS.
-
-**🔧 Perbaikan & Peningkatan**
-- Banner diperbarui ke v4.0.
-- Pola flag `REDLIMIT{...}` ditambahkan ke flag pattern matcher.
-- Mesin deobfuscate diperluas dengan dukungan XOR brute.
-- Analisis PCAP ditingkatkan dengan jalur deteksi DNS tunneling.
+- `--ntfs` — Recovery file terhapus di NTFS.
+- `--partition` — Analisis tabel partisi (MBR/GPT).
+- `--dns-tunnel` — Deteksi DNS tunneling.
 
 ---
 
 ### v3.0 — 2026
-> **Tema: Install Global + Auto-Solve CTF berdasarkan 11 writeup nyata**
+> **Tema: Install Global + Auto-Solve CTF**
 
 **🆕 Fitur Baru**
-- `--install-global` — Install ke `/usr/local/bin/raven`, bisa dijalankan dari direktori mana pun.
-- `--uninstall` — Hapus binary dan data dari sistem.
-- `~/.raven/` — Venv & engine disimpan di home directory (bukan folder script).
-- `--reg` — Parser Windows Registry: decode semua nilai `hex:` (REG_BINARY) ke UTF-16/UTF-8, scan key Run/RunOnce/UserInit.
-- `--log` — Analyzer log web server: frekuensi IP, status HTTP, deteksi pola serangan (SQLi/XSS/LFI), flag di URL 200-OK.
-- `--autorun` — Analyzer Autorun/INF: reverse / ROT13 / Caesar brute / Atbash / Base64.
-- `--zipcrack` — Crack password ZIP: tanpa password → kosong → rockyou.txt → fcrackzip.
-- `--folder DIR` — Scanner fake extension: baca magic bytes, deteksi ketidakcocokan, rename otomatis dan ekstrak.
-- `--volatility` — Auto-pipeline Volatility 3: windows.info → pslist → pstree → cmdline → envars → netscan → filescan → dumpfiles → scan flag.
-- `--deobfuscate` — Mesin deobfuscation: reverse, ROT13, Atbash, Caesar brute (25 shift), Base64, Hex, reverse+Base64.
+- `--install-global` — Install ke `/usr/local/bin/raven`.
+- `~/.raven/` — Venv & engine disimpan di home directory.
+- `--reg`, `--log`, `--autorun`, `--zipcrack`, `--volatility`, `--deobfuscate`, `--folder`.
 
 ---
 
@@ -560,40 +487,18 @@ engine/
 
 **🆕 Fitur Baru**
 - Standalone — Python engine tertanam di dalam `.sh` via heredoc.
-- `--stegseek` — Brute-force Stegseek dengan rockyou.txt (~14 juta password).
-- `--install` — Auto-install semua tools sistem.
-- `--exif` — Analisis metadata EXIF mendalam via exiftool.
-- `--stegdetect` — Deteksi metode stego yang digunakan (rasio LSB, variansi channel).
-- `--lsbextract` — Ekstrak raw bytes LSB ke file binary.
-- `--compare FILE` — Perbandingan piksel dua gambar.
-- Brute-force Steghide paralel dengan `ThreadPoolExecutor`.
-- Mode `--quick`: strings → zsteg → stegseek → steghide, berhenti saat flag pertama ditemukan.
+- `--stegseek`, `--install`, `--exif`, `--stegdetect`, `--lsbextract`, `--compare`.
+- Brute-force paralel dengan `ThreadPoolExecutor`.
+- Mode `--quick`.
 
 ---
 
 ### v1.x — 2025
-> **Tema: Tool forensik Python all-in-one (gaya AperiSolve)**
+> **Tema: Tool forensik Python all-in-one**
 
-- Perintah `sfores` / `fores` sebagai entry point.
-- Analisis gambar: bit planes, channel RGB, LSB (zsteg), steghide, outguess, pngcheck, jpseek.
+- Analisis gambar: bit planes, channel RGB, LSB (zsteg), steghide, outguess.
 - Auto-repair: magic bytes PNG & JPEG.
 - File carving: foremost, binwalk.
 - Auto-decode: Base64, Hex, Binary.
-- Analisis PCAP: HTTP objects, DNS, kredensial, TCP streams, deteksi serangan, timeline.
-- Analisis disk image + parser Windows Event Log.
-- Pola flag: `picoCTF{...}`, `CTF{...}`, `flag{...}`, generik `PREFIX{...}`.
-- Kalkulasi entropi & deteksi flag tersebar.
-
----
-
-<div align="center">
-
-Dikembangkan oleh **Syaaddd** 👨‍💻 — untuk para pejuang CTF! 🏆🚩
-
-[![GitHub](https://img.shields.io/badge/GitHub-Syaaddd%2Fraven--ctf-black?style=for-the-badge&logo=github)](https://github.com/Syaaddd/raven-ctf)
-[![Stars](https://img.shields.io/github/stars/Syaaddd/raven-ctf?style=for-the-badge&logo=github)](https://github.com/Syaaddd/raven-ctf/stargazers)
-[![Issues](https://img.shields.io/github/issues/Syaaddd/raven-ctf?style=for-the-badge&logo=github)](https://github.com/Syaaddd/raven-ctf/issues)
-
-*Kalau RAVEN membantu kamu dapat flag, tinggalkan ⭐!*
-
-</div>
+- Analisis PCAP + disk image + Windows Event Log.
+- Pola flag: `picoCTF{...}`, `CTF{...}`, `flag{...}`.
