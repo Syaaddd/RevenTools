@@ -1,0 +1,170 @@
+Saya lihat gambar yang kamu berikan — itu adalah **CyberChef recipe** dengan dua operasi:
+
+1. **From Binary** (Delimiter: None, Byte Length: 8)
+2. **Render Image** (Input format: Raw)
+
+Ini artinya kamu mau RAVEN bisa **otomatis detect file binary digits → decode → render sebagai gambar** seperti CyberChef lakukan. Mari saya buatkan plan pengembangannya.Berikut plan pengembangan RAVEN untuk fitur **Binary → Render Image** otomatis seperti CyberChef:Sekarang ini **kode Python konkret** yang perlu ditambahkan/dimodifikasi di RAVEN:
+
+---
+
+## Perubahan yang diperlukan
+
+### 1. Fungsi baru: `render_image_from_bytes()`
+
+Tambahkan fungsi ini ke engine Python, **setelah** fungsi `_render_binary_as_image()` yang sudah ada:
+
+```python
+def render_image_from_bytes(raw_bytes, source_filepath, label=""):
+    """
+    Stage B: jika bytes array mengandung magic bytes gambar,
+    langsung buka dengan PIL dan simpan — persis seperti CyberChef 'Render Image'.
+    """
+    IMAGE_MAGIC = {
+        b'\x89PNG':     ('png', 'PNG'),
+        b'\xFF\xD8\xFF':('jpg', 'JPEG'),
+        b'GIF8':        ('gif', 'GIF'),
+        b'BM':          ('bmp', 'BMP'),
+        b'RIFF':        ('webp','WebP'),
+    }
+    
+    try:
+        from PIL import Image
+        from io import BytesIO
+        
+        # Cek magic bytes
+        header = raw_bytes[:8]
+        detected = None
+        for sig, (ext, fmt) in IMAGE_MAGIC.items():
+            if header[:len(sig)] == sig:
+                detected = (ext, fmt)
+                break
+        
+        out_dir = source_filepath.parent / f"{source_filepath.stem}_binary_render"
+        out_dir.mkdir(exist_ok=True)
+        
+        if detected:
+            ext, fmt = detected
+            out_path = out_dir / f"{source_filepath.stem}_{label}_extracted.{ext}"
+            out_path.write_bytes(raw_bytes)
+            print(f"{Fore.GREEN}[BIN-RENDER] Magic bytes {fmt} terdeteksi! → {out_path.name}{Style.RESET_ALL}")
+            
+            # Buka dan re-save via PIL (normalize)
+            try:
+                img = Image.open(BytesIO(raw_bytes))
+                normalized = out_dir / f"{source_filepath.stem}_{label}_rendered.png"
+                img.save(str(normalized))
+                print(f"{Fore.GREEN}[BIN-RENDER] Image rendered: {normalized.name} ({img.size}, {img.mode}){Style.RESET_ALL}")
+                add_to_summary("BIN-RENDER-IMAGE", f"Rendered {fmt}: {normalized.name}")
+                
+                # Scan strings pada hasil
+                sr = subprocess.getoutput(f"strings '{normalized}'")
+                scan_text_for_flags(sr, "BIN-RENDER-STRINGS")
+                return normalized
+            except Exception as e:
+                print(f"{Fore.YELLOW}[BIN-RENDER] PIL open gagal: {e}{Style.RESET_ALL}")
+                return out_path
+        
+        else:
+            # Tidak ada magic → render sebagai raw pixel (Mode C)
+            print(f"{Fore.CYAN}[BIN-RENDER] Tidak ada image magic, mencoba raw pixel render...{Style.RESET_ALL}")
+            return None
+            
+    except Exception as e:
+        print(f"{Fore.RED}[BIN-RENDER] Error: {e}{Style.RESET_ALL}")
+        return None
+```
+
+---
+
+### 2. Modifikasi `analyze_binary_digits()` — tambahkan Stage B
+
+Di dalam fungsi `analyze_binary_digits()` yang sudah ada, **setelah** block "Interpretasi 1" (8-bit MSB), tambahkan:
+
+```python
+# --- Interpretasi BARU: raw_bytes → cek image magic (seperti CyberChef) ---
+if len(bits) % 8 == 0:
+    try:
+        raw_bytes = bytes(
+            int(bits[i:i+8], 2)
+            for i in range(0, len(bits), 8)
+        )
+        
+        # Coba render sebagai image (Stage B)
+        rendered = render_image_from_bytes(raw_bytes, filepath, label="msb")
+        if rendered:
+            found_any = True
+            add_to_summary("BIN-RENDER", f"Image extracted: {rendered.name}")
+        
+        # Juga coba LSB-first
+        raw_bytes_lsb = bytes(
+            int(bits[i:i+8][::-1], 2)   # bit-reversed per byte
+            for i in range(0, len(bits), 8)
+        )
+        rendered_lsb = render_image_from_bytes(raw_bytes_lsb, filepath, label="lsb")
+        if rendered_lsb:
+            found_any = True
+            add_to_summary("BIN-RENDER-LSB", f"Image extracted (LSB): {rendered_lsb.name}")
+            
+    except Exception as e:
+        print(f"{Fore.YELLOW}[BIN-RENDER] Gagal: {e}{Style.RESET_ALL}")
+```
+
+---
+
+### 3. Auto-detect di `process_file()` — perluas deteksi binary
+
+Di dalam blok `# 5. Binary Digits Detection`, tambahkan pengecekan delimiter:
+
+```python
+# Tambahan: deteksi format "spaced binary" (misal: "01001000 01100101 01101100")
+spaced = re.sub(r'\s+', '', file_content)
+if re.match(r'^[01]+$', spaced) and len(spaced) > 50:
+    # Cek juga apakah ada space/newline sebagai delimiter (byte separator)
+    tokens = file_content.strip().split()
+    if all(re.match(r'^[01]{8}$', t) for t in tokens[:20]):
+        print(f"\n{Fore.GREEN}[AUTO] Spaced binary (8-bit per token) detected!{Style.RESET_ALL}")
+        # Langsung decode ke bytes dan coba render
+        raw_bytes = bytes(int(t, 2) for t in tokens if re.match(r'^[01]{8}$', t))
+        render_image_from_bytes(raw_bytes, repaired, label="spaced")
+```
+
+---
+
+### 4. Tambahkan flag `--render-image` di argparse
+
+Di bagian argparse (dalam `write_python_engine()`), tambahkan:
+
+```python
+ctf.add_argument("--render-image", action="store_true", dest="render_image",
+    help="Force binary → render image mode (seperti CyberChef From Binary + Render Image)")
+ctf.add_argument("--bit-order", choices=["msb","lsb"], default="msb", dest="bit_order",
+    help="Bit order saat decode binary: MSB-first (default) atau LSB-first")
+ctf.add_argument("--byte-len", type=int, default=8, dest="byte_len",
+    help="Panjang tiap byte group (default: 8, bisa 7 untuk 7-bit ASCII)")
+```
+
+---
+
+### 5. Update di `raven.sh` — tambahkan ke usage string
+
+Di fungsi `usage()`:
+
+```bash
+  --render-image   Binary digits → decode bytes → render image (CyberChef mode)
+  --bit-order STR  msb (default) atau lsb — urutan bit per byte
+  --byte-len INT   Panjang byte group (default: 8)
+```
+
+---
+
+## Ringkasan perubahan
+
+| File | Perubahan | Prioritas |
+|---|---|---|
+| `engine.py` | Tambah `render_image_from_bytes()` | Wajib |
+| `engine.py` | Modif `analyze_binary_digits()` | Wajib |
+| `engine.py` | Tambah deteksi spaced binary di `process_file()` | Wajib |
+| `engine.py` | Tambah `--render-image`, `--bit-order`, `--byte-len` di argparse | Wajib |
+| `raven.sh` | Update `usage()` | Opsional |
+
+Setelah update ini, workflow jadi: `raven file.txt --binary` atau `raven file.txt --render-image` → otomatis detect format binary → decode bytes → cek magic bytes → render gambar seperti CyberChef, tanpa perlu manual.

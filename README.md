@@ -11,7 +11,7 @@
 [![Platform](https://img.shields.io/badge/platform-Linux-lightgrey?style=for-the-badge&logo=linux)](https://www.linux.org/)
 [![CTF](https://img.shields.io/badge/CTF-ready-red?style=for-the-badge&logo=hackthebox)](https://github.com/Syaaddd/raven-ctf)
 
-*Alat otomatis untuk semua kategori CTF — forensics, steganografi, kriptografi, network, memory forensics, dan deteksi flag* 🚩
+*Alat otomatis untuk semua kategori CTF — forensics, steganografi, kriptografi, network, memory forensics, binary analysis, dan deteksi flag* 🚩
 
 [📦 Instalasi](#-instalasi) · [▶️ Penggunaan](#️-penggunaan) · [📁 Output](#-output-folder) · [🆕 Changelog](#-changelog)
 
@@ -21,32 +21,24 @@
 
 ## 🔍 Tentang RAVEN
 
-RAVEN adalah toolkit CTF berbasis Bash + Python yang dirancang untuk mempercepat proses analisis challenge. Mulai dari steganografi gambar, forensics memori, network PCAP, hingga deobfuscation — semua terintegrasi dalam **modular Python engine**.
+RAVEN adalah toolkit CTF berbasis Bash + Python yang dirancang untuk mempercepat proses analisis challenge. Mulai dari steganografi gambar, forensics memori, network PCAP, binary reversing, hingga decoding binary digits, morse code, dan decimal ASCII — semua terintegrasi dalam **satu standalone script**.
 
-**🆕 v5.1 — Modular Engine Architecture**
+**🆕 v5.1 — Binary Digits, Morse Code & Decimal ASCII Analysis**
 
-RAVEN v5.1 hadir dengan arsitektur modular yang lebih clean dan maintainable:
-- **9 file Python terpisah** (dari sebelumnya 1 heredoc 6360 baris)
-- **Event logging system** untuk writeup generation
-- **Writeup-ready output** dalam 3 format (Terminal/Markdown/JSON)
-- **Code style natural** — tidak AI-looking, mudah dibaca dan di-maintain
-
-**Struktur Engine:**
-```
-engine/
-├── core.py (~390 baris)         ← Globals, utils, flag scanner, event_log
-├── stego.py (~500 baris)        ← Steganografi (zsteg, steghide, LSB, bitplane)
-├── forensics.py (~630 baris)    ← Disk, memory, registry, log, autorun
-├── crypto.py (~650 baris)       ← RSA, XOR, Vigenere, classic ciphers
-├── reversing.py (~370 baris)    ← Strings, objdump, readelf, packer, Ghidra
-├── pcap.py (~270 baris)         ← PCAP analysis (tshark, DNS tunneling)
-└── report.py (~260 baris)       ← WriteupBuilder (terminal/Markdown/JSON)
-```
+RAVEN v5.1 menambahkan kemampuan analisis untuk challenge berbasis encoding:
+- **Binary Digits Analysis** — Decode binary (0/1) ke ASCII, render sebagai gambar, flag scanning
+- **Morse Code Decoder** — Decode morse code lengkap dengan flag detection
+- **Decimal ASCII Decoder** — Decode decimal-encoded ASCII (e.g. "70 76 65 71" → "FLAG")
+- **Auto-Detection Engine** — Otomatis detect tipe encoding dari file
+- **Interactive Menu** — Multi-select dengan 3 TUI modes (select/whiptail/fzf)
 
 **Kategori yang didukung:**
 
 | Kategori | Tools |
 |----------|-------|
+| 🔢 Binary Digits | 8-bit MSB/LSB, 7-bit ASCII, image rendering, bit reversal |
+| 📡 Morse Code | Full morse decoder (A-Z, 0-9, punctuation) |
+| 🔢 Decimal ASCII | Decimal to ASCII converter (space/comma separated) |
 | 🖼️ Steganografi | zsteg, steghide, stegseek, outguess, LSB |
 | 🔬 Forensics | foremost, binwalk, exiftool, pngcheck |
 | 🌐 Network | tshark, PCAP analysis, HTTP objects, DNS tunneling |
@@ -128,21 +120,12 @@ pip install colorama Pillow numpy requests
 
 ```
 raven-ctf/
-├── raven.sh            ← Bash wrapper (menu, venv, dispatch)
-└── engine/             ← Modular Python engine (v5.1)
-    ├── __init__.py     ← Package initialization
-    ├── __main__.py     ← Entry point
-    ├── core.py         ← Globals, utils, event_log, flag scanner
-    ├── stego.py        ← Steganografi functions
-    ├── forensics.py    ← Disk, memory, registry, log analysis
-    ├── crypto.py       ← RSA, XOR, Vigenere, classic ciphers
-    ├── reversing.py    ← Binary reversing functions
-    ├── pcap.py         ← PCAP analysis functions
-    └── report.py       ← Writeup generator (terminal/Markdown/JSON)
+├── raven.sh            ← Standalone Bash + Python inline engine (~6700 baris)
+├── README.md           ← Dokumentasi (file ini)
+└── NEW_FEATURES.md     ← Dokumentasi fitur baru v5.1
 
 ~/.raven/               ← Data runtime (dibuat otomatis)
-├── venv/               ← Python venv
-└── engine/             ← Copied modular engine files
+└── engine.py           ← Python engine (inline, auto-generated)
 
 /usr/local/bin/raven    ← Binary global (setelah --install-global)
 ```
@@ -192,6 +175,35 @@ raven image.png --quick     # ULTRA-FAST: strings + zsteg + stegseek + early exi
 ```
 
 ### 🆕 Fitur Baru v4.0+
+
+#### 🔢 Binary Digits, Morse & Decimal (v5.1)
+```bash
+raven binary.txt --binary                 # Analisis binary digits (0/1)
+raven binary.txt --binary --bin-width 64  # Render gambar dengan lebar 64px
+raven morse.txt --morse                   # Decode morse code
+raven decimal.txt --decimal               # Decode decimal ASCII (70 76 65 71 → FLAG)
+# Auto-detection: file dengan >90% karakter 0/1 akan otomatis dianalisis
+```
+
+**Binary Digits Features:**
+- **8-bit MSB ASCII** — Konversi binary standar (Most Significant Bit first)
+- **8-bit LSB ASCII** — Bit-reversed per byte (Least Significant Bit first)
+- **7-bit ASCII** — Interpretasi 7-bit ASCII alternatif
+- **Full String Reversal** — Reverse seluruh bit string sebelum konversi
+- **Image Rendering** — Konversi binary ke gambar hitam-putih (multiple widths: 8-512px)
+- **Auto-detection** — Otomatis detect file binary (>90% karakter 0/1, >50 bits)
+
+**Morse Code Features:**
+- Full morse code dictionary (A-Z, 0-9, punctuation)
+- Word separation dengan '/'
+- Auto-detection pola morse dalam file
+- Flag scanning dalam output yang didecode
+
+**Decimal ASCII Features:**
+- Decimal ke ASCII conversion (values 32-126)
+- Handles space dan comma separated values
+- Auto-detection pola decimal
+- Printable ratio validation (>70% required)
 
 #### 🔒 Cryptography Engine
 ```bash
@@ -303,6 +315,9 @@ export RAVEN_WORDLIST="/path/to/list"  # Path wordlist kustom
 | `*_objdump/` | Disassembly files |
 | `*_readelf/` | Binary structure analysis |
 | `*_strings.txt` | Extracted strings |
+| `*_binary_images/` | Binary digits rendered as images |
+| `*_decoded_morse/` | Morse code decoded output |
+| `*_decoded_decimal/` | Decimal ASCII decoded output |
 
 ---
 
@@ -321,11 +336,14 @@ export RAVEN_WORDLIST="/path/to/list"  # Path wordlist kustom
 | **NTFS deleted file recovery** | ❌ | ❌ | ❌ | ✅ | ✅ `--ntfs` | ✅ |
 | **Partition table scan** | ❌ | ❌ | ❌ | ✅ | ✅ `--partition` | ✅ |
 | **DNS tunneling detector** | ❌ | ❌ | ❌ | ✅ | ✅ `--dns-tunnel` | ✅ |
-| **Modular Engine** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| **Event Logging** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| **Writeup Generation** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| **Output di CWD** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| **Enhanced Summary** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Binary Digits Analysis** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ `--binary` |
+| **Binary → Image Rendering** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ `--bin-width` |
+| **Morse Code Decoder** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ `--morse` |
+| **Decimal ASCII Decoder** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ `--decimal` |
+| **Auto-Detection Engine** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **PDF Password Crack** | ❌ | ❌ | ❌ | ❌ | ✅ `--pdfcrack` | ✅ |
+| **John the Ripper** | ❌ | ❌ | ❌ | ❌ | ✅ `--john` | ✅ |
+| **Hashcat** | ❌ | ❌ | ❌ | ❌ | ✅ `--hashcat` | ✅ |
 | **Stegseek + rockyou** | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **ZIP password crack** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **Registry analysis** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
@@ -358,6 +376,9 @@ export RAVEN_WORDLIST="/path/to/list"  # Path wordlist kustom
 
 - ⚡ Gunakan `--quick` untuk analisis super cepat saat kompetisi berlangsung
 - 🎯 **Early exit** otomatis berhenti begitu flag ditemukan
+- 🔢 File dengan hanya 0/1? Auto-detect binary digits + render gambar!
+- 📡 Morse code dalam file? `--morse` langsung decode dengan flag detection
+- 🔢 Angka decimal (70 76 65 71)? `--decimal` konversi ke ASCII otomatis
 - 🔒 `--crypto` untuk otomatis menyerang semua jenis enkripsi sekaligus — RSA, Vigenere, XOR, Caesar
 - 💡 `--xor-plain` powerful untuk soal yang tahu prefix flag-nya (e.g. `--xor-plain "picoCTF{"`)
 - 🔍 `--stegseek` jauh lebih cepat dari `--bruteforce` untuk JPEG
@@ -369,6 +390,7 @@ export RAVEN_WORDLIST="/path/to/list"  # Path wordlist kustom
 - 📋 `--reg` decode semua nilai `hex:` di `.reg` — sering menyembunyikan flag di RunOnce
 - 🌐 `--log` deteksi request 200-OK attacker — flag sering di URL path
 - 🔎 Periksa `*_bitplanes/` jika flag tidak terdeteksi otomatis di gambar
+- 🖼️ Periksa `*_binary_images/` untuk hasil render binary → gambar
 
 ---
 
@@ -376,7 +398,7 @@ export RAVEN_WORDLIST="/path/to/list"  # Path wordlist kustom
 
 ### 🔍 About RAVEN
 
-RAVEN is a Bash + Python CTF toolkit designed to accelerate challenge analysis. From image steganography and memory forensics to network PCAPs and deobfuscation — all integrated into a **modular Python engine architecture**.
+RAVEN is a Bash + Python CTF toolkit designed to accelerate challenge analysis. From image steganography and memory forensics to network PCAPs, binary analysis, and encoding decoding — all integrated into a **standalone script architecture**.
 
 ### 🚀 Quick Start
 
@@ -392,6 +414,9 @@ raven challenge.png --auto    # Analyze your first challenge
 
 | Feature | Command | Description |
 |---------|---------|-------------|
+| 🔢 Binary Digits | `--binary` | Binary (0/1) to ASCII, image rendering, flag scan |
+| 📡 Morse Code | `--morse` | Full morse code decoder with flag detection |
+| 🔢 Decimal ASCII | `--decimal` | Decimal-encoded ASCII decoder |
 | 🎯 Interactive Menu | (default) | Multi-select: 3 TUI modes (select/whiptail/fzf) |
 | 🔧 Binary Reversing | `--reversing` | strings, objdump, readelf, packer detection |
 | 📦 UPX Unpacker | `--unpack` | Auto-detect and unpack UPX packed binaries |
@@ -401,8 +426,9 @@ raven challenge.png --auto    # Analyze your first challenge
 | 💽 NTFS Recovery | `--ntfs` | NTFS deleted file recovery (fls/icat/strings) |
 | 🗂️ Partition Scan | `--partition` | MBR/GPT partition analysis |
 | 🌐 DNS Tunnel | `--dns-tunnel` | DNS tunneling detector + decoder |
-| 📁 Output di CWD | (auto) | Output folders created in current working directory |
-| 📊 Enhanced Summary | (auto) | Full analysis summary with flags, tools, and folders |
+| 📄 PDF Cracker | `--pdfcrack` | PDF password cracking with wordlist |
+| 🔑 John the Ripper | `--john` | Hash cracking with John the Ripper |
+| 🔑 Hashcat | `--hashcat` | Hash cracking with Hashcat |
 
 ### Environment Variables
 
@@ -416,34 +442,37 @@ export RAVEN_WORDLIST="/path/to/list"    # Custom wordlist path
 ## 📋 Changelog
 
 ### v5.1 — 2026
-> **Theme: Modular Engine + Writeup Generation**
+> **Theme: Binary Digits, Morse Code & Decimal ASCII Analysis**
 
 **🆕 New Features**
-- **Modular Engine Architecture** — Python engine dipisah dari 1 heredoc (6360 baris) menjadi 9 file modular (~3000 baris total)
-- **Event Logging System** — Tracking setiap tool execution untuk writeup generation
-- **Writeup-Ready Output** — 3 format output: Terminal, Markdown, JSON
-- **Output di CWD** — Semua output folders dibuat di current working directory, bukan di sebelah file input
-- **Enhanced Summary** — Ringkasan lengkap di akhir: flags yang ditemukan, tools yang dijalankan, output folders
-- **Path Resolution** — File arguments di-resolve ke absolute path sebelum `cd`, jadi relative path bekerja dari mana saja
-- **Natural Code Style** — Docstring 1 baris, nama variabel singkat, inline logic, tidak AI-looking
+- **Binary Digits Analysis** — Deteksi dan decode file berisi 0/1 (8-bit MSB/LSB, 7-bit ASCII, reversal)
+- **Binary → Image Rendering** — Konversi binary ke gambar hitam-putih dengan multiple widths (8-512px)
+- **Morse Code Decoder** — Decode morse code lengkap (A-Z, 0-9, punctuation) dengan flag detection
+- **Decimal ASCII Decoder** — Decode decimal-encoded ASCII (space/comma separated) dengan printable ratio validation
+- **Auto-Detection Engine** — 3 modul deteksi otomatis: Binary (>90% 0/1, >50 bits), Morse (pattern match), Decimal (pattern match)
+- **PDF Password Cracking** — Crack PDF password dengan pdfcrack + wordlist
+- **John the Ripper Integration** — Crack hash dengan John the Ripper
+- **Hashcat Integration** — Crack hash dengan Hashcat (supports various hash types)
+- **Enhanced CLI Flags** — `--binary`, `--bin-width`, `--morse`, `--decimal`, `--pdfcrack`, `--john`, `--hashcat`, `--hash-type`
 
-**📁 Engine Structure**
+**🔧 Technical Implementation**
+- 4 new analysis functions: `analyze_binary_digits()`, `_render_binary_as_image()`, `analyze_morse()`, `analyze_decimal_ascii()`
+- Auto-detection dengan early exit untuk binary (efficient processing)
+- Image rendering menggunakan PIL/Pillow (`Image.new('1', ...)`)
+- Full integration dengan existing flag scanner dan tool logging
+- ~300+ lines of code added to Python engine
+
+**📊 Detection Flow**
 ```
-engine/
-├── core.py           ← Globals, utils, event_log, flag scanner, deobfuscation
-├── stego.py          ← Steganografi (zsteg, steghide, LSB, bitplane, compare, remap)
-├── forensics.py      ← Disk, memory, registry, log, autorun, zip crack
-├── crypto.py         ← RSA (weak/Fermat/Common/Bellcore), XOR, Vigenere, classic, chain
-├── reversing.py      ← Strings, objdump, readelf, packer detection, Ghidra
-├── pcap.py           ← PCAP analysis (tshark, HTTP/DNS, streams, DNS tunneling)
-└── report.py         ← WriteupBuilder (terminal/Markdown/JSON reports)
+INPUT FILE → Binary? (>90% 0/1) → YES → analyze_binary() → render images → DONE
+           → Morse? (pattern) → YES → analyze_morse() → continue
+           → Decimal? (pattern) → YES → analyze_decimal() → continue
 ```
 
 **🔧 Improvements**
-- Separation of concerns: setiap module fokus pada satu domain
-- Easier to test, lint, dan maintain code secara terpisah
 - Backward compatible: semua flag CLI dan fitur v5.0 tetap berfungsi
-- Engine bisa di-import sebagai Python module: `from engine import core, stego, ...`
+- Standalone architecture: semua Python code tetap dalam 1 file `raven.sh` (~6700 baris)
+- Enhanced auto-detection untuk challenge berbasis encoding
 
 ---
 
