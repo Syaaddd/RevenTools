@@ -4,7 +4,7 @@
 
 **Toolkit Otomasi CTF Multi-Kategori yang Cerdas**
 
-[![Version](https://img.shields.io/badge/version-v5.0-blue?style=for-the-badge&logo=github)](https://github.com/Syaaddd/raven-ctf)
+[![Version](https://img.shields.io/badge/version-v5.1-blue?style=for-the-badge&logo=github)](https://github.com/Syaaddd/raven-ctf)
 
 [![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](LICENSE)
 [![Shell](https://img.shields.io/badge/shell-bash-orange?style=for-the-badge&logo=gnu-bash)](https://www.gnu.org/software/bash/)
@@ -22,7 +22,27 @@
 
 ## 🔍 Tentang RAVEN
 
-RAVEN adalah toolkit CTF berbasis Bash + Python yang dirancang untuk mempercepat proses analisis challenge. Mulai dari steganografi gambar, forensics memori, network PCAP, hingga deobfuscation — semua terintegrasi dalam **satu file `.sh`**.
+RAVEN adalah toolkit CTF berbasis Bash + Python yang dirancang untuk mempercepat proses analisis challenge. Mulai dari steganografi gambar, forensics memori, network PCAP, hingga deobfuscation — semua terintegrasi dalam **modular Python engine**.
+
+**🆕 v5.1 — Modular Engine Architecture**
+
+RAVEN v5.1 hadir dengan arsitektur modular yang lebih clean dan maintainable:
+- **9 file Python terpisah** (dari sebelumnya 1 heredoc 6360 baris)
+- **Event logging system** untuk writeup generation
+- **Writeup-ready output** dalam 3 format (Terminal/Markdown/JSON)
+- **Code style natural** — tidak AI-looking, mudah dibaca dan di-maintain
+
+**Struktur Engine:**
+```
+engine/
+├── core.py (~350 baris)         ← Globals, utils, flag scanner, event_log
+├── stego.py (~450 baris)        ← Steganografi (zsteg, steghide, LSB, bitplane)
+├── forensics.py (~600 baris)    ← Disk, memory, registry, log, autorun
+├── crypto.py (~630 baris)       ← RSA, XOR, Vigenere, classic ciphers
+├── reversing.py (~350 baris)    ← Strings, objdump, readelf, packer, Ghidra
+├── pcap.py (~250 baris)         ← PCAP analysis (tshark, DNS tunneling)
+└── report.py (~225 baris)       ← WriteupBuilder (terminal/Markdown/JSON)
+```
 
 **Kategori yang didukung:**
 
@@ -32,10 +52,11 @@ RAVEN adalah toolkit CTF berbasis Bash + Python yang dirancang untuk mempercepat
 | 🔬 Forensics | foremost, binwalk, exiftool, pngcheck |
 | 🌐 Network | tshark, PCAP analysis, HTTP objects, DNS tunneling |
 | 🧠 Memory | Volatility 3 pipeline, advanced memory analysis |
-| 🔒 Cryptography | RSA attacks, Vigenere, XOR KPA, Caesar, Atbash, Encoding Chain |
+| 🔒 Cryptography | RSA attacks (multi-file), Vigenere, XOR KPA, Caesar, Atbash, Encoding Maze |
 | 🔧 Reversing | strings, objdump, readelf, Ghidra, UPX unpacker |
-| 📁 Disk | Disk image, NTFS recovery, Partition scan, Event Log, Registry |
+| 📁 Disk | Disk image, NTFS recovery, Partition scan, Event Log, Registry (hex decode) |
 | 🔎 Deobfuscate | ROT13, Caesar brute (1-25), Atbash, Base64, Hex, reverse |
+| 📊 Log Analysis | Apache/Nginx log parser, attacker IP detection, timeline, flag in URLs |
 
 ---
 
@@ -108,11 +129,21 @@ pip install colorama Pillow numpy requests
 
 ```
 raven-ctf/
-└── raven.sh            ← Satu file ini sudah cukup!
+├── raven.sh            ← Bash wrapper (menu, venv, dispatch)
+└── engine/             ← Modular Python engine (v5.1)
+    ├── __init__.py     ← Package initialization
+    ├── __main__.py     ← Entry point
+    ├── core.py         ← Globals, utils, event_log, flag scanner
+    ├── stego.py        ← Steganografi functions
+    ├── forensics.py    ← Disk, memory, registry, log analysis
+    ├── crypto.py       ← RSA, XOR, Vigenere, classic ciphers
+    ├── reversing.py    ← Binary reversing functions
+    ├── pcap.py         ← PCAP analysis functions
+    └── report.py       ← Writeup generator (terminal/Markdown/JSON)
 
 ~/.raven/               ← Data runtime (dibuat otomatis)
 ├── venv/               ← Python venv
-└── engine.py           ← Python engine (auto-generated)
+└── engine/             ← Copied modular engine files
 
 /usr/local/bin/raven    ← Binary global (setelah --install-global)
 ```
@@ -422,6 +453,38 @@ export RAVEN_WORDLIST="/path/to/list"    # Custom wordlist path
 ---
 
 ## 📋 Changelog
+
+### v5.1 — 2026
+> **Theme: Modular Engine + Writeup Generation**
+
+**🆕 New Features**
+- **Modular Engine Architecture** — Python engine dipisah dari 1 heredoc (6360 baris) menjadi 9 file modular (~2860 baris total)
+- **Event Logging System** — Tracking setiap tool execution untuk writeup generation
+- **Writeup-Ready Output** — 3 format output:
+  - Terminal: Enhanced report dengan timeline dan writeup snippet
+  - Markdown: Auto-generated `*_writeup.md`
+  - JSON: `*_report.json` untuk automation pipeline
+- **Natural Code Style** — Docstring 1 baris, nama variabel singkat, inline logic, tidak AI-looking
+
+**📁 Engine Structure**
+```
+engine/
+├── core.py           ← Globals, utils, event_log, flag scanner, deobfuscation
+├── stego.py          ← Steganografi (zsteg, steghide, LSB, bitplane, compare, remap)
+├── forensics.py      ← Disk, memory, registry, log, autorun, zip crack
+├── crypto.py         ← RSA (weak/Fermat/Common/Bellcore), XOR, Vigenere, classic, chain
+├── reversing.py      ← Strings, objdump, readelf, packer detection, Ghidra
+├── pcap.py           ← PCAP analysis (tshark, HTTP/DNS, streams, DNS tunneling)
+└── report.py         ← WriteupBuilder (terminal/Markdown/JSON reports)
+```
+
+**🔧 Improvements**
+- Separation of concerns: setiap module fokus pada satu domain
+- Easier to test, lint, dan maintain code secara terpisah
+- Backward compatible: semua flag CLI dan fitur v5.0 tetap berfungsi
+- Engine bisa di-import sebagai Python module: `from engine import core, stego, ...`
+
+---
 
 ### v5.0 — 2026
 > **Theme: Interactive Menu System + Binary Reversing**

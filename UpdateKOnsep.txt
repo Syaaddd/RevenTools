@@ -1,0 +1,193 @@
+Oke, saya baca dulu kode v5.0 ini secara menyeluruh sebelum membuat plan.
+
+Dari analisis kode, ada beberapa masalah struktural utama yang perlu diperbaiki:
+
+1. `write_python_engine()` itu satu fungsi bash yang isinya ~3000 baris Python — ini yang paling susah dibaca
+2. Final report sekarang hanya tabel tool + flag, kurang konteks untuk writeup
+3. Tidak ada separation of concerns yang jelas di Python engine
+
+Ini plan lengkapnya:Berikut plan detail per bagian:
+
+---
+
+## Bagian 1 — Struktur File
+
+Masalah terbesar sekarang adalah `write_python_engine()` yang menjadi "black hole" — semua kode Python tertanam di dalam heredoc bash. Ini membuat keduanya susah di-edit dan tidak bisa di-lint/test secara terpisah.
+
+Solusinya sederhana: pisahkan menjadi file terpisah, lalu `raven.sh` tinggal mengarahkan ke file-file itu.
+
+```
+~/.raven/
+├── engine/
+│   ├── __init__.py
+│   ├── core.py        ← globals, utils, flag scanner, report
+│   ├── stego.py       ← semua fungsi steganografi
+│   ├── forensics.py   ← disk, memory, pcap, registry
+│   ├── crypto.py      ← RSA, XOR, Vigenere, classic ciphers
+│   ├── reversing.py   ← ELF analysis, packer detection
+│   └── report.py      ← writeup generator
+└── raven.sh           ← bash: venv, menu, dispatch saja
+```
+
+Di `raven.sh`, fungsi `write_python_engine()` diganti dengan:
+
+```bash
+setup_engine() {
+    if [[ ! -d "$RAVEN_HOME/engine" ]]; then
+        info "Cloning engine modules..."
+        git clone -q https://github.com/kamu/raven-engine "$RAVEN_HOME/engine"
+    fi
+}
+```
+
+---
+
+## Bagian 2 — Code Style yang Natural
+
+Ini yang paling subtle. Kode yang "AI-looking" biasanya bisa dikenali dari beberapa pola. Yang perlu diubah:
+
+**Sebelum (terasa generated):**
+```python
+def analyze_registry(filepath):
+    """Parse .reg file, decode hex: values, search for hidden flags.
+    
+    This function handles Windows Registry files by reading them with
+    multiple encodings and searching for flag patterns in hex-encoded
+    values, suspicious registry keys, and string values.
+    """
+    print(f"{Fore.GREEN}[REGISTRY] Analisis Windows Registry file...{Style.RESET_ALL}")
+```
+
+**Sesudah (lebih natural):**
+```python
+def analyze_registry(filepath):
+    """Baca .reg, decode nilai hex:, cari flag tersembunyi."""
+    print(f"{Fore.GREEN}[REGISTRY] {filepath.name}...{Style.RESET_ALL}")
+```
+
+Aturan praktis yang perlu diterapkan di seluruh kode:
+
+- Docstring maksimal 1 baris, bahasa Indonesia, infirmal
+- Komentar inline hanya untuk logika yang tidak obvious — misalnya `# utf-16le karena Windows default` bukan `# decode the bytes`
+- Nama variabel: `out` bukan `output_result`, `fp` bukan `filepath_object`, `n` bukan `number_value`
+- Jangan pisah setiap kondisi menjadi fungsi sendiri jika logikanya cuma 3-5 baris — inline saja
+- Blank line untuk grouping antar tahap logika, bukan komentar section header `# ── Step 1 ──`
+
+---
+
+## Bagian 3 — Writeup-Ready Output
+
+Ini yang paling langsung terasa manfaatnya saat CTF. Sekarang output hanya tabel tool + flag. Yang dibutuhkan untuk writeup adalah narasi step-by-step.
+
+Tambahkan ke `report.py` sebuah class `WriteupBuilder` yang mengumpulkan event selama analisis:
+
+```python
+# Di core.py — tambah event log
+event_log = []   # list of dicts
+
+def log_event(step, tool, result, detail=""):
+    event_log.append({
+        "step": step,        # nomor urut
+        "tool": tool,        # nama tool
+        "result": result,    # "found" / "nothing" / "error"  
+        "detail": detail,    # isi detail (password, method, dll)
+        "ts": time.time(),
+    })
+```
+
+Lalu di akhir analisis, `report.py` menghasilkan tiga format sekaligus:
+
+**Format 1 — Terminal (yang ada sekarang, tapi diperkaya):**
+```
+══════════════════════════════════════════════════════════
+  RAVEN REPORT — challenge.png
+══════════════════════════════════════════════════════════
+
+  📋 FILE INFO
+  ─────────────────────────────────────────────────────
+  Name     : challenge.png
+  Size     : 1,204,832 bytes (1.1 MB)
+  Real type: PNG Image (magic bytes match)
+  Entropy  : 7.82  ← high, possible steganography
+  Dimensions: 512×512 px, mode RGB
+
+  🔍 ANALYSIS TIMELINE
+  ─────────────────────────────────────────────────────
+  [01] strings     → nothing (no readable flag patterns)
+  [02] exiftool    → nothing (metadata clean)
+  [03] pngcheck    → OK (valid PNG structure)
+  [04] zsteg -a    → FOUND  ← b1,lsb,msb,xy = "CTF{l5b_is_fun}"
+       └─ Method: LSB in Blue channel, bit plane 1
+       └─ Command: zsteg -a challenge.png
+
+  🚩 FLAG
+  ─────────────────────────────────────────────────────
+  CTF{l5b_is_fun}
+
+  📝 WRITEUP SNIPPET (copy-paste ready)
+  ─────────────────────────────────────────────────────
+  The challenge provides a PNG image (512×512, 1.1 MB).
+  Running zsteg reveals data hidden in the blue channel
+  LSB. The flag is extracted with: zsteg -a challenge.png
+
+══════════════════════════════════════════════════════════
+```
+
+**Format 2 — Markdown file (auto-generated):**
+```bash
+# otomatis tersimpan di: ./challenge_writeup.md
+```
+
+Isi markdown-nya:
+
+```markdown
+# challenge.png — CTF Writeup
+
+## Challenge Info
+- **File**: challenge.png (1.1 MB)
+- **Type**: PNG Image
+- **Entropy**: 7.82 (high — steganography suspected)
+
+## Approach
+1. Ran `strings` → nothing found
+2. Checked EXIF with `exiftool` → metadata clean
+3. Validated PNG structure with `pngcheck` → OK
+4. Ran `zsteg -a` → **found hidden data in Blue LSB**
+
+## Solution
+```bash
+zsteg -a challenge.png
+# b1,lsb,msb,xy .. text: "CTF{l5b_is_fun}"
+```
+
+## Flag
+`CTF{l5b_is_fun}`
+```
+
+**Format 3 — JSON (untuk automasi/pipeline):**
+```json
+{
+  "file": "challenge.png",
+  "flag": "CTF{l5b_is_fun}",
+  "method": "zsteg b1,lsb,msb,xy",
+  "timeline": [
+    {"step": 1, "tool": "strings", "result": "nothing"},
+    {"step": 2, "tool": "exiftool", "result": "nothing"},
+    {"step": 3, "tool": "zsteg", "result": "found", "detail": "b1,lsb,msb,xy"}
+  ]
+}
+```
+
+---
+
+## Urutan Pengerjaan
+
+**Sprint 1 (minggu ini):** Pisahkan `engine.py` menjadi beberapa module — ini yang paling mendesak karena kode sekarang sudah 3000+ baris dalam satu heredoc.
+
+**Sprint 2:** Implementasi `WriteupBuilder` dan `event_log` di `core.py` — tidak mengubah logika analisis, hanya menambah pencatatan.
+
+**Sprint 3:** Buat `report.py` yang generate terminal output baru + Markdown export. JSON bisa menyusul setelahnya.
+
+**Sprint 4:** Terapkan code style cleanup secara bertahap per module, jangan sekaligus.
+
+Mau saya mulai dari yang mana? Saya bisa langsung tulis kode untuk `core.py` + `report.py` sebagai pondasinya, atau kalau lebih prioritas bisa mulai dari writeup output dulu karena itu yang langsung terasa saat CTF.
