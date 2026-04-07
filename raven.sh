@@ -58,6 +58,7 @@ ${BOLD}Modes:${NC}
   --all            Paksa jalankan semua tool
   --interactive    Interactive category menu (multi-select, default mode)
   --pcap           Full PCAP analysis + attack detection
+  --pcap-deep      Per-packet payload decode + flag reassembler (Ph4nt0m-style)
   --disk           Disk image analysis
   --windows        Windows Event Log forensics
   --folder DIR     Scan semua file di folder (fake extension detection)
@@ -489,7 +490,7 @@ import shutil
 import gzip
 from pathlib import Path
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 try:
     from colorama import Fore, Back, Style, init
@@ -588,6 +589,16 @@ DEFAULT_WORDLIST = [
     "password123", "welcome", "admin", "admin123", "root",
     "toor", "pass", "test", "guest", "master123",
     "changeme", "letmein123", "qwerty123", "123456789", "1234567890",
+]
+
+# Common rockyou.txt locations
+ROCKYOU_PATHS = [
+    "/usr/share/wordlists/rockyou.txt",
+    "/usr/share/seclists/Passwords/rockyou.txt",
+    "/opt/wordlists/rockyou.txt",
+    "/usr/share/wordlist/rockyou.txt",
+    "./rockyou.txt",
+    "/usr/share/metasploit-framework/data/wordlists/rockyou.txt",
 ]
 
 # Common flag patterns to search for
@@ -2541,7 +2552,11 @@ def analyze_with_binwalk(filepath):
         if out_dir.exists():
             print(f"{Fore.GREEN}[BINWALK] Ekstraksi: {out_dir.name}{Style.RESET_ALL}")
             for nested in out_dir.rglob("*"):
-                if nested.is_file(): analyze_strings_and_flags(nested)
+                if nested.is_file():
+                    analyze_strings_and_flags(nested)
+                    if check_early_exit():
+                        log_tool("binwalk", "✅ Found", f"Early exit after flag found in {nested.name}")
+                        return
             new_flags = list(found_flags_set)[found_before:]
             log_tool("binwalk", "✅ Found" if new_flags else "⬜ Extracted",
                      ", ".join(new_flags) if new_flags else f"output: {out_dir.name}")
@@ -2916,6 +2931,11 @@ def analyze_pcap_full(filepath):
     extract_http_objects(filepath)
     extract_dns_queries(filepath)
     if check_early_exit(): return
+    
+    # Segmented payload decoder (untuk soal Ph4nt0m-style)
+    analyze_pcap_segmented_payload(filepath)
+    if check_early_exit(): return
+    
     analyze_dns_tunneling(filepath)  # DNS tunneling detector
     if check_early_exit(): return
     extract_credentials(filepath)
@@ -3623,6 +3643,438 @@ def analyze_ntfs_deleted(filepath):
              ", ".join(new_flags) if new_flags else f"output: {out_dir.name}")
     add_to_summary("NTFS-DONE", f"Output: '{out_dir.name}'")
     print(f"{Fore.GREEN}[NTFS-RECOVER] Selesai. Output: {out_dir.name}{Style.RESET_ALL}")
+
+
+# ── PCAP: SEGMENTED PAYLOAD ANALYSIS (Ph4nt0m-style) ─────────────
+
+def analyze_pcap_segmented_payload(filepath):
+    """
+    Solver untuk soal seperti Ph4nt0m 1ntrud3r picoCTF:
+    Base64 tersebar di beberapa TCP packet → decode per-packet → reassemble → flag.
+
+    Teknik: tshark -T fields -e tcp.payload per frame → hex → bytes → decode
+    """
+    if not AVAILABLE_TOOLS.get('tshark'):
+        log_tool("pcap-segment", "⏭ Skipped", "tshark tidak tersedia")
+        return
+
+    print(f"\n{Fore.GREEN}[PCAP-SEGMENT] Analisis payload per-packet (segmented B64 mode)...{Style.RESET_ALL}")
+    log_tool("pcap-segment", "running")
+    found_before = len(found_flags_set)
+
+    out_dir = filepath.parent / f"{filepath.stem}_pcap_segments"
+    out_dir.mkdir(exist_ok=True)
+
+    # ── STEP 1: Extract payload hex per frame
+    print(f"{Fore.CYAN}[PCAP-SEGMENT] Mengekstrak payload per frame...{Style.RESET_ALL}")
+    try:
+        result = subprocess.run(
+            ["tshark", "-r", str(filepath), "-T", "fields",
+             "-e", "frame.number", "-e", "tcp.payload",
+             "-e", "udp.payload", "-q"],
+            capture_output=True, text=True, timeout=120
+        )
+        raw_output = result.stdout
+    except Exception as e:
+        print(f"{Fore.RED}[PCAP-SEGMENT] tshark gagal: {e}{Style.RESET_ALL}")
+        log_tool("pcap-segment", "❌ Error", str(e))
+        return
+
+    # Parse: frame_num → hex_payload
+    frame_payloads = {}
+    for line in raw_output.splitlines():
+        parts = line.strip().split('\t')
+        if len(parts) >= 2:
+            frame_num = parts[0].strip()
+            hex_payload = parts[1].strip() if len(parts) > 1 and parts[1].strip() else (parts[2].strip() if len(parts) > 2 else '')
+            if hex_payload and frame_num.isdigit():
+                frame_payloads[int(frame_num)] = hex_payload
+
+    print(f"{Fore.CYAN}[PCAP-SEGMENT] {len(frame_payloads)} frame dengan payload ditemukan{Style.RESET_ALL}")
+
+    if not frame_payloads:
+        print(f"{Fore.YELLOW}[PCAP-SEGMENT] Tidak ada TCP/UDP payload. Skip.{Style.RESET_ALL}")
+        log_tool("pcap-segment", "⬜ Nothing", "tidak ada payload")
+        return
+
+    # ── STEP 2: Decode payload per frame
+    decoded_per_frame = {}  # frame_num → list of decoded strings
+    summary_rows = []
+
+    for frame_num in sorted(frame_payloads.keys()):
+        hex_data = frame_payloads[frame_num].replace(':', '')
+
+        try:
+            raw_bytes = bytes.fromhex(hex_data)
+        except:
+            continue
+
+        # Coba decode sebagai ASCII dulu
+        ascii_text = raw_bytes.decode('ascii', errors='ignore').strip()
+
+        row = {
+            'frame': frame_num,
+            'hex': hex_data[:40],
+            'ascii': ascii_text[:60],
+            'decoded': []
+        }
+
+        # Coba berbagai encoding pada ascii_text
+        candidates = _try_all_encodings_on_payload(ascii_text, raw_bytes)
+
+        if candidates:
+            decoded_per_frame[frame_num] = candidates
+            row['decoded'] = candidates
+
+            for dec in candidates:
+                scan_text_for_flags(dec, f"PCAP-FRAME-{frame_num}")
+                collect_base64_from_text(dec)
+
+        summary_rows.append(row)
+
+    # ── STEP 3: Tampilkan tabel per-frame
+    print(f"\n{Fore.CYAN}[PCAP-SEGMENT] Tabel decode per frame:{Style.RESET_ALL}")
+    print(f"{'Frame':<8} {'ASCII (raw)':<30} {'Decoded':<40}")
+    print(f"{'─'*8} {'─'*30} {'─'*40}")
+
+    for row in summary_rows:
+        decoded_str = ' | '.join(row['decoded'])[:38] if row['decoded'] else '-'
+        ascii_disp = row['ascii'][:28] if row['ascii'] else '-'
+        flag_marker = f" {Fore.GREEN}<-- FLAG?{Style.RESET_ALL}" if any(
+            re.search(pat, d, re.IGNORECASE)
+            for d in row['decoded']
+            for pat in COMMON_FLAG_PATTERNS
+        ) else ""
+        print(f"  {row['frame']:<6} {ascii_disp:<30} {decoded_str}{flag_marker}")
+
+    # ── STEP 4: Reassemble — gabungkan semua decoded secara berurutan
+    print(f"\n{Fore.CYAN}[PCAP-SEGMENT] Mencoba reassemble flag dari semua frame...{Style.RESET_ALL}")
+
+    # Method A: gabungkan decoded strings berurutan
+    all_decoded_ordered = []
+    for frame_num in sorted(decoded_per_frame.keys()):
+        all_decoded_ordered.extend(decoded_per_frame[frame_num])
+
+    for sep in ['', ' ', '\n']:
+        combined = sep.join(all_decoded_ordered)
+        scan_text_for_flags(combined, "PCAP-REASSEMBLED")
+        collect_base64_from_text(combined)
+
+    # Method B: gabungkan ASCII raw berurutan, lalu decode sekali
+    all_ascii = ''.join(
+        row['ascii'] for row in summary_rows if row['ascii']
+    )
+    _try_all_encodings_on_payload(all_ascii, b'')
+    scan_text_for_flags(all_ascii, "PCAP-ASCII-ALL")
+
+    # Method C: ekstrak hanya karakter Base64-valid dari semua payload, gabungkan
+    b64_chars_all = re.sub(r'[^A-Za-z0-9+/=]', '', all_ascii)
+    if len(b64_chars_all) >= 8:
+        print(f"{Fore.CYAN}[PCAP-SEGMENT] Combined B64 chars: {b64_chars_all[:80]}...{Style.RESET_ALL}")
+        decoded_combined = decode_base64(b64_chars_all)
+        if decoded_combined:
+            print(f"{Fore.GREEN}[PCAP-SEGMENT] Combined decode: {decoded_combined[:100]}{Style.RESET_ALL}")
+            scan_text_for_flags(decoded_combined, "PCAP-B64-COMBINED")
+
+        # Coba juga tiap chunk 4 karakter (kelipatan base64)
+        _try_chunked_b64(b64_chars_all, out_dir)
+
+    # ── STEP 5: Smart flag assembler — coba partial flag detection
+    print(f"\n{Fore.CYAN}[PCAP-SEGMENT] Smart flag assembler...{Style.RESET_ALL}")
+    _smart_flag_assembler(decoded_per_frame, out_dir)
+
+    # ── STEP 6: Generate equivalent tshark one-liner (untuk referensi user)
+    oneliner = (
+        f"tshark -r '{filepath.name}' -T fields -e tcp.payload -q 2>/dev/null "
+        f"| xxd -r -p 2>/dev/null | base64 -d 2>/dev/null"
+    )
+    oneliner2 = (
+        f"tshark -r '{filepath.name}' -Y 'tcp.payload' -T fields -e tcp.payload "
+        f"| tr -d '\\n' | xxd -r -p | base64 -d"
+    )
+    print(f"\n{Fore.CYAN}[PCAP-SEGMENT] tshark one-liner equivalents:{Style.RESET_ALL}")
+    print(f"  {oneliner}")
+    print(f"  {oneliner2}")
+
+    # Simpan summary
+    summary_lines = [
+        f"PCAP Segment Analysis: {filepath.name}",
+        f"Total frames with payload: {len(frame_payloads)}",
+        f"Frames with decoded content: {len(decoded_per_frame)}",
+        "",
+        "Per-frame breakdown:",
+    ]
+    for row in summary_rows:
+        summary_lines.append(
+            f"  Frame {row['frame']}: ascii={row['ascii'][:40]} | decoded={row['decoded']}"
+        )
+    summary_lines.extend([
+        "",
+        "Reassembled (all decoded joined):",
+        ' '.join(all_decoded_ordered),
+        "",
+        "tshark one-liner:",
+        oneliner,
+    ])
+    (out_dir / "pcap_segments_decoded.txt").write_text('\n'.join(summary_lines))
+
+    new_flags = list(found_flags_set)[found_before:]
+    log_tool("pcap-segment", "✅ Found" if new_flags else "⬜ Analyzed",
+             ", ".join(new_flags) if new_flags else f"{len(frame_payloads)} frames analyzed")
+    print(f"{Fore.GREEN}[PCAP-SEGMENT] Selesai. Output: {out_dir.name}{Style.RESET_ALL}")
+
+
+def _try_all_encodings_on_payload(text, raw_bytes):
+    """
+    Coba semua encoding pada satu payload string/bytes.
+    Return list of successfully decoded strings.
+    """
+    results = []
+
+    if not text and not raw_bytes:
+        return results
+
+    # Base64 decode (paling umum di soal ini)
+    clean_b64 = re.sub(r'[^A-Za-z0-9+/=]', '', text)
+    if len(clean_b64) >= 4:
+        # Coba dengan berbagai padding
+        for pad in range(4):
+            try:
+                import base64 as _b64
+                padded = clean_b64 + '=' * pad
+                decoded = _b64.b64decode(padded).decode('utf-8', errors='ignore').strip()
+                if decoded and any(c.isprintable() for c in decoded) and len(decoded) >= 2:
+                    if decoded not in results:
+                        results.append(decoded)
+                    break
+            except:
+                pass
+
+    # Base32 decode
+    b32_result = decode_base32(text)
+    if b32_result and b32_result not in results:
+        results.append(b32_result)
+
+    # Hex decode (jika text adalah pure hex)
+    hex_result = decode_hex_string(text)
+    if hex_result and hex_result not in results:
+        results.append(hex_result)
+
+    # URL decode
+    url_result = decode_url_encoding(text)
+    if url_result and url_result != text and url_result not in results:
+        results.append(url_result)
+
+    # ROT13
+    if text:
+        rot = text.translate(str.maketrans(
+            'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',
+            'NOPQRSTUVWXYZABCDEFGHIJKLMnopqrstuvwxyzabcdefghijklm'))
+        for pat in COMMON_FLAG_PATTERNS:
+            if re.search(pat, rot, re.IGNORECASE):
+                if rot not in results:
+                    results.append(rot)
+                break
+
+    # Iterative B64: b64(b64(x)) → decode 2x
+    for prev in list(results):
+        clean = re.sub(r'[^A-Za-z0-9+/=]', '', prev)
+        if len(clean) >= 4:
+            try:
+                import base64 as _b64
+                second = _b64.b64decode(clean + '==').decode('utf-8', errors='ignore').strip()
+                if second and len(second) >= 2 and second not in results:
+                    results.append(second)
+            except:
+                pass
+
+    return results
+
+
+def _try_chunked_b64(b64_string, out_dir):
+    """
+    Coba decode setiap chunk 4-8 karakter dari string Base64 besar.
+    Berguna ketika flag tersebar di banyak packet kecil.
+    """
+    print(f"{Fore.CYAN}[PCAP-SEGMENT] Chunked B64 decode ({len(b64_string)} chars)...{Style.RESET_ALL}")
+
+    import base64 as _b64
+
+    # Coba chunk 4, 8, 12, 16, 24 karakter
+    chunk_results = {}
+    for chunk_size in [4, 8, 12, 16, 24]:
+        decoded_chunks = []
+        for i in range(0, len(b64_string), chunk_size):
+            chunk = b64_string[i:i+chunk_size]
+            if len(chunk) < 2:
+                continue
+            # Pad ke kelipatan 4
+            padded = chunk + '=' * ((4 - len(chunk) % 4) % 4)
+            try:
+                dec = _b64.b64decode(padded).decode('utf-8', errors='ignore').strip('\x00')
+                if dec and any(c.isprintable() for c in dec):
+                    decoded_chunks.append(dec)
+            except:
+                decoded_chunks.append(chunk)  # keep raw jika gagal
+
+        if decoded_chunks:
+            assembled = ''.join(decoded_chunks)
+            chunk_results[chunk_size] = assembled
+            scan_text_for_flags(assembled, f"PCAP-CHUNK-{chunk_size}")
+
+            # Scan juga tiap chunk individual untuk partial flag
+            for dc in decoded_chunks:
+                scan_text_for_flags(dc, f"PCAP-CHUNK-{chunk_size}-INDIVIDUAL")
+
+    # Simpan semua hasil chunk ke file
+    if chunk_results:
+        chunk_file = out_dir / "chunked_b64_results.txt"
+        with open(chunk_file, 'w') as f:
+            for size, result in chunk_results.items():
+                f.write(f"\nChunk size {size}:\n{result}\n")
+        print(f"{Fore.CYAN}[PCAP-SEGMENT] Chunk results → {chunk_file.name}{Style.RESET_ALL}")
+
+
+def _smart_flag_assembler(decoded_per_frame, out_dir):
+    """
+    Cerdas: cari partial flag di tiap frame, lalu coba susun ulang.
+    Filter noise, hanya simpan frame yang mengandung flag-like content.
+    """
+    FLAG_PREFIXES  = ['picoCTF', 'CTF', 'flag', 'FLAG', '{']
+    FLAG_SUFFIXES  = ['}']
+    
+    # Pattern untuk flag content (alphanumeric + special chars commonly used in flags)
+    FLAG_CONTENT_PATTERN = re.compile(r'^[a-zA-Z0-9_{}\-\[\]!@#$%^&*()+=]+$')
+
+    prefix_frames  = []
+    suffix_frames  = []
+    middle_parts   = []
+    
+    # Filter: hanya simpan decoded yang terlihat seperti bagian flag
+    for frame_num in sorted(decoded_per_frame.keys()):
+        for decoded in decoded_per_frame[frame_num]:
+            # Cek apakah decoded mengandung prefix flag
+            has_prefix = False
+            for pfx in FLAG_PREFIXES:
+                if pfx in decoded:
+                    prefix_frames.append((frame_num, decoded))
+                    has_prefix = True
+                    break
+            
+            # Cek suffix
+            has_suffix = '}' in decoded
+            
+            # Quality check: apakah decoded terlihat seperti flag content?
+            is_flag_like = (
+                has_prefix or
+                has_suffix or
+                (FLAG_CONTENT_PATTERN.match(decoded) and len(decoded) >= 3) or
+                any(c in decoded for c in ['{', '}']) or
+                bool(re.search(r'[0-9a-f]{8,}', decoded))  # hex-like
+            )
+            
+            if is_flag_like:
+                middle_parts.append((frame_num, decoded))
+
+    if prefix_frames:
+        print(f"{Fore.GREEN}[SMART-ASSEMBLER] Partial flag prefix ditemukan di {len(prefix_frames)} frame:{Style.RESET_ALL}")
+        for fn, dec in prefix_frames:
+            print(f"  Frame {fn}: {dec}")
+
+    # Method 1: susun semua middle_parts berurutan frame
+    sorted_parts = sorted(middle_parts, key=lambda x: x[0])
+    assembled = ''.join(dec for _, dec in sorted_parts)
+
+    print(f"{Fore.CYAN}[SMART-ASSEMBLER] Assembled (filtered): {assembled[:120]}{Style.RESET_ALL}")
+    scan_text_for_flags(assembled, "SMART-ASSEMBLER")
+
+    # Method 2: Cari pola flag dengan regex fleksibel
+    flexible_pattern = r'(?:picoCTF|CTF|flag|FLAG)\{[^}]{3,80}\}'
+    for m in re.findall(flexible_pattern, assembled, re.IGNORECASE):
+        print(f"{Fore.GREEN}[SMART-ASSEMBLER] Flag pattern ditemukan: {m}{Style.RESET_ALL}")
+        add_to_summary("SMART-ASSEMBLER-FLAG", m)
+        signal_flag_found()
+
+    # Method 3: Content-based reassembly — susun berdasarkan flag pattern
+    if prefix_frames and not FLAG_FOUND:
+        print(f"{Fore.CYAN}[SMART-ASSEMBLER] Content-based reassembly...{Style.RESET_ALL}")
+        
+        # Extract HANYA flag-like content dari setiap decoded string
+        # Flag chars: alphanumeric, underscore, curly braces, dash
+        flag_chars_pattern = re.compile(r'[a-zA-Z0-9_{}-]+')
+        flag_candidates = []
+        
+        for frame_num in sorted(decoded_per_frame.keys()):
+            for decoded in decoded_per_frame[frame_num]:
+                # Ekstrak semua flag-like segments
+                matches = flag_chars_pattern.findall(decoded)
+                for match in matches:
+                    # Filter: hanya simpan yang panjang >= 2 atau mengandung flag chars
+                    if len(match) >= 2 or any(c in match for c in ['{', '}']):
+                        flag_candidates.append(match)
+        
+        print(f"{Fore.CYAN}[SMART-ASSEMBLER] Extracted {len(flag_candidates)} flag-like segments{Style.RESET_ALL}")
+        for i, seg in enumerate(flag_candidates[:15]):
+            print(f"  [{i}] {seg}")
+        
+        # Method 3a: Gabungkan semua extracted segments
+        combined = ''.join(flag_candidates)
+        print(f"{Fore.CYAN}[SMART-ASSEMBLER] Combined: {combined[:150]}{Style.RESET_ALL}")
+        scan_text_for_flags(combined, "SMART-EXTRACT-JOIN")
+        
+        # Method 3b: Cari flag pattern yang lengkap
+        flag_regex = r'(picoCTF|CTF|flag|FLAG)\{[a-zA-Z0-9_\-]+\}'
+        for m in re.finditer(flag_regex, combined, re.IGNORECASE):
+            flag = m.group(0)
+            print(f"{Fore.GREEN}[SMART-ASSEMBLER] ✅ FLAG FOUND: {flag}{Style.RESET_ALL}")
+            add_to_summary("SMART-RECONSTRUCT-FLAG", flag)
+            signal_flag_found()
+            break
+        
+        # Method 3c: Jika pattern tidak lengkap, coba reconstruct
+        if not FLAG_FOUND:
+            # Cari picoCTF{ awal
+            for i, seg in enumerate(flag_candidates):
+                if 'picoCTF{' in seg or seg == 'picoCTF':
+                    print(f"{Fore.CYAN}[SMART-ASSEMBLER] Found prefix at segment [{i}]: {seg}{Style.RESET_ALL}")
+                    # Coba gabungkan dari sini ke depan
+                    assembled_from_here = ''.join(flag_candidates[i:])
+                    
+                    # Scan dengan regex yang lebih permissive
+                    permissive_regex = r'picoCTF\{[a-zA-Z0-9_]{5,}'
+                    match = re.search(permissive_regex, assembled_from_here)
+                    if match:
+                        partial = match.group(0)
+                        print(f"{Fore.YELLOW}[SMART-ASSEMBLER] Partial: {partial}{Style.RESET_ALL}")
+                        
+                        # Cari closing brace
+                        remaining = assembled_from_here[match.end():]
+                        if '}' in remaining:
+                            close_idx = remaining.index('}')
+                            full_flag = partial + remaining[:close_idx+1]
+                            print(f"{Fore.GREEN}[SMART-ASSEMBLER] ✅ FLAG RECONSTRUCTED: {full_flag}{Style.RESET_ALL}")
+                            add_to_summary("SMART-RECONSTRUCT-FLAG", full_flag)
+                            signal_flag_found()
+                            break
+                        
+                        # Jika tidak ada }, coba ambil sampai segment yang mengandung }
+                        for j in range(i+1, len(flag_candidates)):
+                            if '}' in flag_candidates[j]:
+                                extended = partial + ''.join(flag_candidates[i+1:j+1])
+                                # Extract sampai }
+                                if '}' in extended:
+                                    flag_end = extended.index('}') + 1
+                                    full_flag = extended[:flag_end]
+                                    if re.match(r'picoCTF\{[a-zA-Z0-9_]{5,}\}', full_flag):
+                                        print(f"{Fore.GREEN}[SMART-ASSEMBLER] ✅ FLAG FOUND: {full_flag}{Style.RESET_ALL}")
+                                        add_to_summary("SMART-RECONSTRUCT-FLAG", full_flag)
+                                        signal_flag_found()
+                                        break
+                        if FLAG_FOUND:
+                            break
+
+    # Simpan hasil ke file
+    (out_dir / "assembled_flag.txt").write_text(f"Assembled:\n{assembled}\n")
 
 
 # ── PCAP: DNS TUNNELING DETECTOR ─────────────
@@ -6348,6 +6800,8 @@ def main():
     modes.add_argument("--auto",      action="store_true",help="Auto-detect semua tools")
     modes.add_argument("--all",       action="store_true",help="Paksa semua tool")
     modes.add_argument("--pcap",      action="store_true",help="Full PCAP analysis")
+    modes.add_argument("--pcap-deep", action="store_true", dest="pcap_deep",
+                     help="Exhaustive per-packet payload decode (B64/B32/hex/ROT13, reassemble flag)")
     modes.add_argument("--disk",      action="store_true",help="Disk image analysis")
     modes.add_argument("--windows",   action="store_true",help="Windows Event Log")
     modes.add_argument("--folder",    type=str,           help="Scan semua file di folder (fake ext detection)")
@@ -6972,7 +7426,7 @@ main() {
     local has_mode_flag=0
     for arg in "$@"; do
         case "$arg" in
-            --auto|--quick|--all|--pcap|--disk|--windows|--crypto|--reg|--log|--autorun|\
+            --auto|--quick|--all|--pcap|--pcap-deep|--disk|--windows|--crypto|--reg|--log|--autorun|\
             --zipcrack|--pdfcrack|--john|--hashcat|--volatility|--deobfuscate|--reversing|\
             --ghidra|--unpack|--binary|--render-image|--morse|--decimal)
                 has_mode_flag=1
