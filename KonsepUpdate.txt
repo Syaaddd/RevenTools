@@ -1,397 +1,367 @@
-Oke, sudah jelas! Ini soal **PCAP forensics** dengan teknik khusus: **Base64 tersebar di beberapa TCP segment**, harus dikumpulkan lalu di-reassemble dan decode. Sekarang saya buat plan pengembangannya.Dari writeup itu, inti tantangannya adalah: **TCP payload mengandung Base64 yang terfragmentasi di beberapa packet, harus dikumpulkan per-packet, di-decode satu per satu, lalu di-reassemble secara urut untuk dapat flag.** Ini teknik yang sangat spesifik dan RAVEN belum bisa handle dengan baik. Berikut plan lengkapnya:---
+# RAVEN v6.0 — Development Plan
 
-## Kode yang perlu ditambahkan ke engine
+## 🔍 Analisis Gap dari Versi Saat Ini
 
-### Fungsi utama baru: `analyze_pcap_segmented_payload()`
+Sebelum masuk ke saran, saya identifikasi dulu apa yang sudah ada dan apa yang masih kurang berdasarkan kode yang ada.
 
-Tambahkan fungsi ini ke engine Python, dipanggil dari `analyze_pcap_full()`:
+---
 
-```python
-def analyze_pcap_segmented_payload(filepath):
-    """
-    Solver untuk soal seperti Ph4nt0m 1ntrud3r picoCTF:
-    Base64 tersebar di beberapa TCP packet → decode per-packet → reassemble → flag.
-    
-    Teknik: tshark -T fields -e tcp.payload per frame → hex → bytes → b64decode
-    """
-    if not AVAILABLE_TOOLS.get('tshark'):
-        log_tool("pcap-segment", "⏭ Skipped", "tshark tidak tersedia")
-        return
+## 📋 ROADMAP SARAN UPDATE
 
-    print(f"\n{Fore.GREEN}[PCAP-SEGMENT] Analisis payload per-packet (segmented B64 mode)...{Style.RESET_ALL}")
-    log_tool("pcap-segment", "running")
-    found_before = len(found_flags_set)
-    
-    out_dir = filepath.parent / f"{filepath.stem}_pcap_segments"
-    out_dir.mkdir(exist_ok=True)
+---
 
-    # ── STEP 1: Extract payload hex per frame
-    print(f"{Fore.CYAN}[PCAP-SEGMENT] Mengekstrak payload per frame...{Style.RESET_ALL}")
-    try:
-        result = subprocess.run(
-            ["tshark", "-r", str(filepath), "-T", "fields",
-             "-e", "frame.number", "-e", "tcp.payload",
-             "-e", "udp.payload", "-q"],
-            capture_output=True, text=True, timeout=120
-        )
-        raw_output = result.stdout
-    except Exception as e:
-        print(f"{Fore.RED}[PCAP-SEGMENT] tshark gagal: {e}{Style.RESET_ALL}")
-        log_tool("pcap-segment", "❌ Error", str(e))
-        return
+### 1. FILE ANALYSIS — Enhancement
 
-    # Parse: frame_num → hex_payload
-    frame_payloads = {}
-    for line in raw_output.splitlines():
-        parts = line.strip().split('\t')
-        if len(parts) >= 2:
-            frame_num = parts[0].strip()
-            hex_payload = parts[1].strip() if parts[1].strip() else (parts[2].strip() if len(parts) > 2 else '')
-            if hex_payload and frame_num.isdigit():
-                frame_payloads[int(frame_num)] = hex_payload
+**Yang sudah ada:** magic bytes detection, binwalk, file carving (foremost), strings, header repair
 
-    print(f"{Fore.CYAN}[PCAP-SEGMENT] {len(frame_payloads)} frame dengan payload ditemukan{Style.RESET_ALL}")
-    
-    if not frame_payloads:
-        print(f"{Fore.YELLOW}[PCAP-SEGMENT] Tidak ada TCP/UDP payload. Skip.{Style.RESET_ALL}")
-        log_tool("pcap-segment", "⬜ Nothing", "tidak ada payload")
-        return
+**Saran tambahan:**
 
-    # ── STEP 2: Decode payload per frame
-    decoded_per_frame = {}  # frame_num → list of decoded strings
-    summary_rows = []
-    
-    for frame_num in sorted(frame_payloads.keys()):
-        hex_data = frame_payloads[frame_num].replace(':', '')
-        
-        try:
-            raw_bytes = bytes.fromhex(hex_data)
-        except:
-            continue
-        
-        # Coba decode sebagai ASCII dulu
-        ascii_text = raw_bytes.decode('ascii', errors='ignore').strip()
-        
-        row = {
-            'frame': frame_num,
-            'hex': hex_data[:40],
-            'ascii': ascii_text[:60],
-            'decoded': []
-        }
-        
-        # Coba berbagai encoding pada ascii_text
-        candidates = _try_all_encodings_on_payload(ascii_text, raw_bytes)
-        
-        if candidates:
-            decoded_per_frame[frame_num] = candidates
-            row['decoded'] = candidates
-            
-            for dec in candidates:
-                scan_text_for_flags(dec, f"PCAP-FRAME-{frame_num}")
-                collect_base64_from_text(dec)
-        
-        summary_rows.append(row)
+**1.1 Deep File Signature Database**
+Perluas MAGIC_MAP dari ~25 signature menjadi 100+ signature, termasuk format-format CTF yang jarang tapi sering muncul seperti LUKS encrypted volume, SquashFS, ext2/3/4 filesystem images, Android sparse image, Java KeyStore, PCAPNG dengan custom options block, dan berbagai format audio/video container.
 
-    # ── STEP 3: Tampilkan tabel per-frame
-    print(f"\n{Fore.CYAN}[PCAP-SEGMENT] Tabel decode per frame:{Style.RESET_ALL}")
-    print(f"{'Frame':<8} {'ASCII (raw)':<30} {'Decoded':<40}")
-    print(f"{'─'*8} {'─'*30} {'─'*40}")
-    
-    for row in summary_rows:
-        decoded_str = ' | '.join(row['decoded'])[:38] if row['decoded'] else '-'
-        ascii_disp = row['ascii'][:28] if row['ascii'] else '-'
-        flag_marker = f" {Fore.GREEN}<-- FLAG?{Style.RESET_ALL}" if any(
-            re.search(pat, d, re.IGNORECASE) 
-            for d in row['decoded'] 
-            for pat in COMMON_FLAG_PATTERNS
-        ) else ""
-        print(f"  {row['frame']:<6} {ascii_disp:<30} {decoded_str}{flag_marker}")
+**1.2 Chunk-Based File Parser**
+Tambahkan parser khusus untuk format yang berbasis chunk seperti PNG (baca tiap chunk IDAT, tEXt, zTXt, iTXt, eXIf secara individual), RIFF/WAV (LIST chunk, INFO chunk), IFF, dan JPEG markers (APP0 sampai APPn, COM marker). Sering di CTF flag disembunyikan di custom chunk yang valid secara struktur tapi tidak ditampilkan viewer biasa.
 
-    # ── STEP 4: Reassemble — gabungkan semua decoded secara berurutan
-    print(f"\n{Fore.CYAN}[PCAP-SEGMENT] Mencoba reassemble flag dari semua frame...{Style.RESET_ALL}")
-    
-    # Method A: gabungkan decoded strings berurutan
-    all_decoded_ordered = []
-    for frame_num in sorted(decoded_per_frame.keys()):
-        all_decoded_ordered.extend(decoded_per_frame[frame_num])
-    
-    for sep in ['', ' ', '\n']:
-        combined = sep.join(all_decoded_ordered)
-        scan_text_for_flags(combined, "PCAP-REASSEMBLED")
-        collect_base64_from_text(combined)
-    
-    # Method B: gabungkan ASCII raw berurutan, lalu decode sekali
-    all_ascii = ''.join(
-        row['ascii'] for row in summary_rows if row['ascii']
-    )
-    _try_all_encodings_on_payload(all_ascii, b'')
-    scan_text_for_flags(all_ascii, "PCAP-ASCII-ALL")
-    
-    # Method C: ekstrak hanya karakter Base64-valid dari semua payload, gabungkan
-    b64_chars_all = re.sub(r'[^A-Za-z0-9+/=]', '', all_ascii)
-    if len(b64_chars_all) >= 8:
-        print(f"{Fore.CYAN}[PCAP-SEGMENT] Combined B64 chars: {b64_chars_all[:80]}...{Style.RESET_ALL}")
-        decoded_combined = decode_base64(b64_chars_all)
-        if decoded_combined:
-            print(f"{Fore.GREEN}[PCAP-SEGMENT] Combined decode: {decoded_combined[:100]}{Style.RESET_ALL}")
-            scan_text_for_flags(decoded_combined, "PCAP-B64-COMBINED")
-        
-        # Coba juga tiap chunk 4 karakter (kelipatan base64)
-        _try_chunked_b64(b64_chars_all, out_dir)
+**1.3 File-within-File Detection**
+Deteksi polyglot file secara lebih agresif, bukan hanya cek satu magic bytes di awal. Scan seluruh body file untuk magic bytes tersembunyi di offset acak, kemudian ekstrak dan analisis secara rekursif. Bedakan antara appended data, prepended data, dan injected data di tengah file.
 
-    # ── STEP 5: Smart flag assembler — coba partial flag detection
-    print(f"\n{Fore.CYAN}[PCAP-SEGMENT] Smart flag assembler...{Style.RESET_ALL}")
-    _smart_flag_assembler(decoded_per_frame, out_dir)
+**1.4 Entropy Map Visualization**
+Generate entropy heatmap per 512-byte block dari seluruh file, simpan sebagai gambar grayscale. Region entropy tinggi (>7.5) menandakan encrypted/compressed data, region entropy rendah (<1.0) menandakan null padding atau repetisi. Output berupa file PNG yang bisa langsung dilihat analyst.
 
-    # ── STEP 6: Generate equivalent tshark one-liner (untuk referensi user)
-    oneliner = (
-        f"tshark -r '{filepath.name}' -T fields -e tcp.payload -q 2>/dev/null "
-        f"| xxd -r -p 2>/dev/null | base64 -d 2>/dev/null"
-    )
-    oneliner2 = (
-        f"tshark -r '{filepath.name}' -Y 'tcp.payload' -T fields -e tcp.payload "
-        f"| tr -d '\\n' | xxd -r -p | base64 -d"
-    )
-    print(f"\n{Fore.CYAN}[PCAP-SEGMENT] tshark one-liner equivalents:{Style.RESET_ALL}")
-    print(f"  {oneliner}")
-    print(f"  {oneliner2}")
+**1.5 File Timeline Analysis**
+Untuk file yang memiliki embedded timestamp (EXIF, ZIP central directory, NTFS MFT, PDF metadata), ekstrak semua timestamp dan urutkan secara kronologis. Anomali timestamp (file dibuat di masa depan, atau epoch 0) sering jadi petunjuk CTF.
 
-    # Simpan summary
-    summary_lines = [
-        f"PCAP Segment Analysis: {filepath.name}",
-        f"Total frames with payload: {len(frame_payloads)}",
-        f"Frames with decoded content: {len(decoded_per_frame)}",
-        "",
-        "Per-frame breakdown:",
-    ]
-    for row in summary_rows:
-        summary_lines.append(
-            f"  Frame {row['frame']}: ascii={row['ascii'][:40]} | decoded={row['decoded']}"
-        )
-    summary_lines.extend([
-        "",
-        "Reassembled (all decoded joined):",
-        sep.join(all_decoded_ordered),
-        "",
-        "tshark one-liner:",
-        oneliner,
-    ])
-    (out_dir / "pcap_segments_decoded.txt").write_text('\n'.join(summary_lines))
-    
-    new_flags = list(found_flags_set)[found_before:]
-    log_tool("pcap-segment", "✅ Found" if new_flags else "⬜ Analyzed",
-             ", ".join(new_flags) if new_flags else f"{len(frame_payloads)} frames analyzed")
-    print(f"{Fore.GREEN}[PCAP-SEGMENT] Selesai. Output: {out_dir.name}{Style.RESET_ALL}")
+---
 
+### 2. STEGANOGRAPHY — Enhancement Besar
 
-def _try_all_encodings_on_payload(text, raw_bytes):
-    """
-    Coba semua encoding pada satu payload string/bytes.
-    Return list of successfully decoded strings.
-    """
-    results = []
-    
-    if not text and not raw_bytes:
-        return results
+**Yang sudah ada:** zsteg, steghide, stegseek, outguess, LSB extract, bit planes, color remapping, WAV LSB
 
-    # Base64 decode (paling umum di soal ini)
-    clean_b64 = re.sub(r'[^A-Za-z0-9+/=]', '', text)
-    if len(clean_b64) >= 4:
-        # Coba dengan berbagai padding
-        for pad in range(4):
-            try:
-                import base64 as _b64
-                padded = clean_b64 + '=' * pad
-                decoded = _b64.b64decode(padded).decode('utf-8', errors='ignore').strip()
-                if decoded and any(c.isprintable() for c in decoded) and len(decoded) >= 2:
-                    if decoded not in results:
-                        results.append(decoded)
-                    break
-            except:
-                pass
+**Saran tambahan:**
 
-    # Base32 decode
-    b32_result = decode_base32(text)
-    if b32_result and b32_result not in results:
-        results.append(b32_result)
+**2.1 Audio Steganography Suite**
+Saat ini hanya ada WAV LSB yang sangat basic. Perlu ditambahkan:
+- Spectrogram generator untuk WAV/MP3/FLAC menggunakan scipy/matplotlib, karena banyak CTF menyembunyikan flag sebagai gambar dalam spektrum frekuensi audio
+- Phase encoding detector: bandingkan phase antar frame untuk mendeteksi data tersembunyi
+- Echo hiding detector: analisis auto-korelasi untuk menemukan echo yang ditanamkan
+- MP3 steganography via MP3Stego tool wrapper
+- DTMF tone decoder: decode tone telepon dari audio
 
-    # Hex decode (jika text adalah pure hex)
-    hex_result = decode_hex_string(text)
-    if hex_result and hex_result not in results:
-        results.append(hex_result)
+**2.2 Advanced Image Steganography**
+- DCT coefficient analysis untuk JPEG: flag sering disembunyikan di koefisien DCT tertentu, bukan di domain spasial
+- Palette-based steganography untuk GIF dan PNG-8: urutan palette entry bisa encode pesan
+- Chi-square attack implementation: deteksi LSB stego secara statistik menggunakan chi-square test, lebih akurat dari sekedar melihat LSB ratio
+- RS (Regular-Singular) analysis: metode steganalysis yang lebih sophisticated
+- Pixel value differencing (PVD) decoder
+- F5 algorithm decoder untuk JPEG (lebih advanced dari outguess)
+- JSteg decoder (berbeda dengan outguess, menggunakan DCT coefficients)
 
-    # URL decode
-    url_result = decode_url_encoding(text)
-    if url_result and url_result != text and url_result not in results:
-        results.append(url_result)
+**2.3 Document Steganography**
+- White-space steganography di file teks: tab vs spasi, trailing whitespace per baris bisa encode binary
+- Font-based steganography di PDF/DOCX: perubahan ukuran font 0.1pt yang tidak terlihat
+- Word/line spacing manipulation di dokumen
+- OpenDocument format (ODT/ODS) hidden content dalam XML stream
 
-    # ROT13
-    if text:
-        rot = text.translate(str.maketrans(
-            'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',
-            'NOPQRSTUVWXYZABCDEFGHIJKLMnopqrstuvwxyzabcdefghijklm'))
-        for pat in COMMON_FLAG_PATTERNS:
-            if re.search(pat, rot, re.IGNORECASE):
-                if rot not in results:
-                    results.append(rot)
-                break
+**2.4 Network Steganography**
+- IP ID field steganography dalam PCAP
+- TCP sequence number analysis untuk data tersembunyi
+- DNS TTL value encoding
+- ICMP payload steganography
+- HTTP header order steganography (Tor fingerprinting technique)
 
-    # Iterative B64: b64(b64(x)) → decode 2x
-    for prev in list(results):
-        clean = re.sub(r'[^A-Za-z0-9+/=]', '', prev)
-        if len(clean) >= 4:
-            try:
-                import base64 as _b64
-                second = _b64.b64decode(clean + '==').decode('utf-8', errors='ignore').strip()
-                if second and len(second) >= 2 and second not in results:
-                    results.append(second)
-            except:
-                pass
+**2.5 Stegsolve Equivalent (Pure Python)**
+Buat implementasi fitur stegsolve tanpa Java dependency: semua filter warna (red plane 0-7, green plane 0-7, blue plane 0-7), XOR combinator antara dua gambar, image addition/subtraction, random color map, full alpha analysis.
 
-    return results
+---
 
+### 3. MEMORY & DISK FORENSICS — Enhancement
 
-def _try_chunked_b64(b64_string, out_dir):
-    """
-    Coba decode setiap chunk 4-8 karakter dari string Base64 besar.
-    Berguna ketika flag tersebar di banyak packet kecil.
-    """
-    print(f"{Fore.CYAN}[PCAP-SEGMENT] Chunked B64 decode ({len(b64_string)} chars)...{Style.RESET_ALL}")
-    
-    import base64 as _b64
-    
-    # Coba chunk 4, 8, 12, 16, 24 karakter
-    chunk_results = {}
-    for chunk_size in [4, 8, 12, 16, 24]:
-        decoded_chunks = []
-        for i in range(0, len(b64_string), chunk_size):
-            chunk = b64_string[i:i+chunk_size]
-            if len(chunk) < 2:
-                continue
-            # Pad ke kelipatan 4
-            padded = chunk + '=' * ((4 - len(chunk) % 4) % 4)
-            try:
-                dec = _b64.b64decode(padded).decode('utf-8', errors='ignore').strip('\x00')
-                if dec and any(c.isprintable() for c in dec):
-                    decoded_chunks.append(dec)
-            except:
-                decoded_chunks.append(chunk)  # keep raw jika gagal
-        
-        if decoded_chunks:
-            assembled = ''.join(decoded_chunks)
-            chunk_results[chunk_size] = assembled
-            scan_text_for_flags(assembled, f"PCAP-CHUNK-{chunk_size}")
-            
-            # Scan juga tiap chunk individual untuk partial flag
-            for dc in decoded_chunks:
-                scan_text_for_flags(dc, f"PCAP-CHUNK-{chunk_size}-INDIVIDUAL")
-    
-    # Simpan semua hasil chunk ke file
-    if chunk_results:
-        chunk_file = out_dir / "chunked_b64_results.txt"
-        with open(chunk_file, 'w') as f:
-            for size, result in chunk_results.items():
-                f.write(f"\nChunk size {size}:\n{result}\n")
-        print(f"{Fore.CYAN}[PCAP-SEGMENT] Chunk results → {chunk_file.name}{Style.RESET_ALL}")
+**Yang sudah ada:** Volatility 3 wrapper, NTFS deleted file recovery, partition table analysis, MBR detection
 
+**Saran tambahan:**
 
-def _smart_flag_assembler(decoded_per_frame, out_dir):
-    """
-    Cerdas: cari partial flag di tiap frame, lalu coba susun ulang.
-    Contoh: frame1='picoCTF', frame2='{1t_w4s', frame3='nt_th4t}' → gabung = flag
-    """
-    FLAG_PREFIXES  = ['picoCTF', 'CTF', 'flag', 'FLAG', '{']
-    FLAG_SUFFIXES  = ['}']
+**3.1 Volatility Plugin Expansion**
+Saat ini hanya menjalankan beberapa plugin standar. Perlu ditambahkan:
+- windows.modscan dan windows.modules untuk kernel module yang di-inject
+- windows.malware.malfind dengan yara rule custom untuk CTF
+- windows.pstree dengan deteksi anomali parent-child (svchost.exe seharusnya child dari services.exe)
+- windows.handles untuk mencari file handle yang masih terbuka
+- windows.clipboard untuk isi clipboard
+- windows.consoles untuk command history di cmd.exe
+- linux.psaux dengan full command line argument
+- Automatic profile detection untuk Volatility 2 backward compatibility
 
-    prefix_frames  = []
-    suffix_frames  = []
-    middle_parts   = []
+**3.2 Autopsy/TSK Deep Integration**
+Saat ini hanya pakai mmls/fls/icat yang basic. Tambahkan:
+- Timeline generation menggunakan mactime (The Sleuth Kit)
+- $MFT parser langsung tanpa mount: parse Master File Table untuk file yang sudah dihapus tapi MFT entry belum di-overwrite
+- $LogFile analysis untuk Windows journal
+- $USNJournal parsing untuk track file changes
+- Volume Shadow Copy detection dan extraction
+- Alternate Data Streams (ADS) detection di NTFS: flag sering disembunyikan di ADS
 
-    for frame_num in sorted(decoded_per_frame.keys()):
-        for decoded in decoded_per_frame[frame_num]:
-            # Cek apakah decoded mengandung prefix flag
-            for pfx in FLAG_PREFIXES:
-                if pfx in decoded:
-                    prefix_frames.append((frame_num, decoded))
-                    break
-            # Cek suffix
-            if '}' in decoded:
-                suffix_frames.append((frame_num, decoded))
-            # Collect semua sebagai kandidat middle
-            middle_parts.append((frame_num, decoded))
+**3.3 Memory Artifact Extraction**
+- Extract credentials dari memory: LSASS dump analysis untuk NTLM hash
+- Browser artifact extraction: Chrome/Firefox password, cookie, history dari memory
+- Clipboard content extraction
+- Screenshot reconstruction dari framebuffer memory
+- Encryption key detection: scan untuk pola key schedule AES, RSA private key material
 
-    if prefix_frames:
-        print(f"{Fore.GREEN}[SMART-ASSEMBLER] Partial flag prefix ditemukan di {len(prefix_frames)} frame:{Style.RESET_ALL}")
-        for fn, dec in prefix_frames:
-            print(f"  Frame {fn}: {dec}")
+**3.4 Disk Image Format Support**
+Saat ini hanya dd/raw. Tambahkan support:
+- E01/EWF (EnCase) format via libewf atau ewf-tools
+- VMDK flat dan sparse
+- VHD/VHDX
+- QCOW2
+- DMG (macOS disk image)
+- Automatic format detection dan conversion ke raw sebelum analisis
 
-    # Coba susun: semua middle_parts berurutan frame
-    sorted_parts = sorted(middle_parts, key=lambda x: x[0])
-    assembled = ''.join(dec for _, dec in sorted_parts)
-    
-    print(f"{Fore.CYAN}[SMART-ASSEMBLER] Assembled: {assembled[:120]}{Style.RESET_ALL}")
-    scan_text_for_flags(assembled, "SMART-ASSEMBLER")
-    
-    # Coba juga regex yang lebih fleksibel: gabungkan semua dan cari pola flag
-    flexible_pattern = r'(?:picoCTF|CTF|flag|FLAG)\{[^}]{3,80}\}'
-    for m in re.findall(flexible_pattern, assembled, re.IGNORECASE):
-        print(f"{Fore.GREEN}[SMART-ASSEMBLER] Flag pattern ditemukan: {m}{Style.RESET_ALL}")
-        add_to_summary("SMART-ASSEMBLER-FLAG", m)
-        signal_flag_found()
+**3.5 Anti-Forensics Detection**
+- Timestamp stomping detection: bandingkan $STANDARD_INFORMATION vs $FILE_NAME timestamp
+- Log clearing detection: Windows event log gaps
+- Wipe tool artifact: pola overwrite dari tools seperti CCleaner, Eraser
+- Hibernation file (hiberfil.sys) analysis
+- Pagefile.sys analysis untuk recover plaintext dari encrypted files
 
-    # Simpan hasil ke file
-    (out_dir / "assembled_flag.txt").write_text(f"Assembled:\n{assembled}\n")
+---
+
+### 4. NETWORK FORENSICS — Enhancement Besar
+
+**Yang sudah ada:** tshark PCAP analysis, HTTP object extraction, DNS query extraction, credential extraction, TCP stream reconstruction, DNS tunneling detector, per-packet payload decoder
+
+**Saran tambahan:**
+
+**4.1 Protocol-Specific Decoders**
+Saat ini hanya handle HTTP dan DNS dengan baik. Perlu ditambahkan:
+- FTP full session reconstructor: gabungkan control channel dan data channel, reconstruct file yang di-transfer
+- SMTP/POP3/IMAP email reconstructor: extract attachment, decode MIME
+- SMB/CIFS file share reconstructor: carve file yang di-transfer via SMB
+- Telnet/SSH session reconstructor (untuk Telnet yang tidak encrypted)
+- IRC message extractor
+- TLS/SSL handshake analyzer: extract certificate, detect weak cipher
+- MQTT topic/message extractor untuk IoT CTF
+- Modbus/DNP3 untuk ICS/SCADA CTF
+
+**4.2 Traffic Pattern Analysis**
+- Beaconing detection: analisis interval request yang periodic (malware C2)
+- Data exfiltration pattern: volume data yang keluar lebih besar dari yang masuk
+- Port scan pattern: deteksi SYN scan, UDP scan
+- Covert channel detection: timing analysis, size analysis
+- TOR traffic detection: circuit establishment pattern
+
+**4.3 File Carving dari PCAP**
+Saat ini hanya extract HTTP objects. Tambahkan:
+- Carve file dari semua protokol: FTP-DATA, SMB, TFTP
+- Reassemble fragmented transfers
+- Extract file dari raw TCP stream tanpa protocol parsing
+- MIME type detection untuk extracted files
+
+**4.4 Wireless/802.11 Analysis**
+- WEP/WPA handshake extraction untuk cracking
+- Probe request SSID list (device history)
+- Deauth attack detection
+- Hidden SSID reveal dari probe response
+- MAC address vendor lookup
+
+**4.5 PCAP Differential Analysis**
+Bandingkan dua PCAP file untuk menemukan perbedaan: request yang ada di satu file tapi tidak di yang lain, response code yang berubah. Berguna untuk before/after analysis di incident response CTF.
+
+---
+
+### 5. OSINT — Modul Baru (Belum Ada Sama Sekali)
+
+Ini adalah gap terbesar. RAVEN belum memiliki modul OSINT apapun.
+
+**5.1 Metadata OSINT Engine**
+- Deep EXIF extraction dengan GPS coordinate parsing: convert DMS ke decimal, generate Google Maps link, generate What3Words estimation
+- Document metadata: Author, Company, LastModifiedBy dari DOCX/XLSX/PPTX, revision history
+- PDF metadata: Creator tool, producer, creation date, custom metadata fields
+- Image metadata timeline: sort multiple images berdasarkan capture time untuk reconstruct chronology
+
+**5.2 Reverse Image Search Automation**
+- Generate perceptual hash (pHash, dHash, aHash) dari gambar untuk identifikasi
+- Extract dominant colors dan generate color palette
+- Detect text dalam gambar menggunakan tesseract OCR
+- Logo/watermark detection menggunakan template matching
+- Steganographic fingerprint (device fingerprint dari JPEG quantization table)
+
+**5.3 Geolocation Analysis**
+- GPS EXIF coordinate extraction dan reverse geocoding
+- Cell tower triangulation dari log file (jika ada MCC/MNC/LAC/CID)
+- WiFi BSSID geolocation menggunakan database publik
+- IP geolocation dari log file atau PCAP
+- Shadow analysis untuk estimate foto waktu dan lokasi berdasarkan bayangan
+
+**5.4 Username/Handle Intelligence**
+- Extract semua username/handle dari file teks menggunakan pattern matching
+- Detect social media URL patterns (Twitter, Instagram, GitHub, etc.)
+- Email address extraction dan domain analysis
+- Phone number extraction dan format normalization
+
+**5.5 Web Archive Analysis**
+- Wayback Machine availability check untuk URL yang ditemukan dalam file
+- Archive.org CDX API query untuk list semua snapshot
+- Cached page content retrieval
+- Diff antara dua snapshot untuk menemukan perubahan
+
+**5.6 Cryptographic Artifact OSINT**
+- Bitcoin address extraction dan validation
+- Ethereum address detection
+- PGP fingerprint extraction
+- SSH public key fingerprint calculation
+- Certificate transparency log lookup untuk domain yang ditemukan
+
+---
+
+### 6. CRYPTOGRAPHY — Enhancement
+
+**Yang sudah ada:** RSA (weak prime, Fermat, Common Modulus, Bellcore), Vigenere, XOR KPA, Classic Cipher, Encoding Chain, AES-CBC Padding Oracle
+
+**Saran tambahan:**
+
+**6.1 RSA Enhancement**
+- Wiener's attack untuk small private exponent (d kecil)
+- Håstad's broadcast attack: pesan sama dienkripsi dengan N berbeda dan e=3
+- Boneh-Durfee attack (extension dari Wiener untuk d lebih besar)
+- Franklin-Reiter related message attack
+- Partial key exposure attack
+- Integration dengan FactorDB API: cek apakah N sudah pernah difaktorisasi
+- Integration dengan online RSA tool seperti RsaCtfTool sebagai subprocess
+- Chinese Remainder Theorem reconstruction untuk multi-prime RSA
+
+**6.2 Symmetric Cipher Enhancement**
+- AES-ECB penguin attack: deteksi ECB mode dari pola blok yang berulang
+- CBC bit flipping attack untuk modify plaintext tanpa key
+- Stream cipher keystream recovery dari two-time-pad
+- Salsa20/ChaCha20 nonce reuse detection
+- RC4 key bias detection dan partial key recovery
+
+**6.3 Hash Analysis**
+- Hash length extension attack untuk SHA1/SHA256/MD5 tanpa padding
+- MD5 collision detection (jika dua file berbeda tapi hash sama)
+- Rainbow table integration untuk common hash
+- Hash identifier yang lebih komprehensif (50+ hash type)
+- Bcrypt/scrypt/argon2 cost parameter analysis
+
+**6.4 Classical Cipher Expansion**
+- Playfair cipher solver
+- Hill cipher (2x2 dan 3x3 matrix) dengan known-plaintext
+- Beaufort cipher
+- Autokey cipher
+- Running key cipher
+- Rail fence cipher (sudah ada? perlu cek)
+- Columnar transposition
+- Double transposition
+- Polybius square variants (ADFGVX, Nihilist)
+- Bacon's cipher (binary encoding via font)
+
+**6.5 Custom Encoding Detector**
+- Detect dan decode brainfuck, ook!, cow, piet, whitespace language
+- Base conversion non-standard (base85, base91, base58, base36, base32hex)
+- Custom alphabet substitution: detect jika ciphertext menggunakan custom charset
+- Baudot code, punched tape encoding
+- T9 predictive text decoding
+- Tap code (numbers only cipher)
+
+---
+
+### 7. REVERSING — Enhancement
+
+**Yang sudah ada:** strings, objdump, readelf, Ghidra headless, XOR analysis, packer detection, UPX unpack
+
+**Saran tambahan:**
+
+**7.1 Dynamic Analysis Integration**
+- ltrace/strace wrapper: trace system calls dan library calls saat binary dijalankan
+- GDB automation script: set breakpoint di common CTF points (strcmp, strncmp, memcmp), capture arguments
+- QEMU user-mode emulation untuk cross-architecture binary
+- Docker sandbox untuk safe execution
+
+**7.2 Binary Patching Helper**
+- Find dan patch strcmp/strncmp untuk bypass password check
+- NOP sled generator untuk patch jump instruction
+- Anti-debug bypass: patch IsDebuggerPresent, ptrace checks
+
+**7.3 Decompiler Integration**
+- Radare2/r2 integration sebagai alternatif Ghidra yang lebih ringan
+- RetDec online API untuk decompilation
+- Binary Ninja headless (jika tersedia)
+
+**7.4 Android/Mobile**
+- APK unpacker dan DEX decompiler menggunakan jadx
+- Android manifest parser
+- Smali code analyzer
+- Certificate pinning bypass detection
+
+**7.5 Obfuscation Detection**
+- Control flow flattening detection
+- String obfuscation patterns (XOR, ROT, base64 in binary)
+- Virtual machine obfuscation detection
+- LLVM-obfuscator patterns
+
+---
+
+### 8. INFRASTRUCTURE & UX — Enhancement
+
+**8.1 Plugin Architecture**
+Refactor dari satu file monolitik menjadi plugin system. Setiap kategori jadi modul terpisah di folder engine/ yang sudah mulai dibentuk. Benefit: mudah update satu modul tanpa break yang lain, komunitas bisa contribute plugin baru.
+
+**8.2 Result Database**
+Simpan hasil analisis ke SQLite database di ~/.raven/results.db. Ini memungkinkan: query hasil analisis lama, track progress per challenge, export report ke JSON/HTML/Markdown.
+
+**8.3 Challenge Context System**
+File konfigurasi per-challenge (raven_challenge.yaml) yang bisa berisi: custom flag format, known plaintext hints, challenge category override, wordlist custom. RAVEN baca file ini jika ada di direktori yang sama.
+
+**8.4 Progress Reporting**
+Tambahkan progress bar (tqdm-style) untuk operasi yang lama seperti stegseek, hashcat, brute force. Saat ini output langsung tanpa indikasi progress yang jelas.
+
+**8.5 HTML Report Generator**
+Setelah analisis selesai, generate laporan HTML yang lengkap dengan: summary eksekutif, semua flag yang ditemukan dengan context, tool yang dijalankan dan hasilnya, file yang diekstrak dengan thumbnail preview untuk gambar, timeline analisis.
+
+**8.6 Docker Image**
+Buat Dockerfile yang include semua tools: zsteg, steghide, stegseek, binwalk, volatility3, tshark, john, hashcat, foremost, tesseract, r2, jadx. Eliminasi masalah dependency dan "tool tidak terinstall".
+
+**8.7 CTF Platform Integration**
+Deteksi challenge file dari format platform populer (CTFd export, rCTF, PicoCTF), auto-set flag format, track solved status.
+
+---
+
+## 🎯 PRIORITAS IMPLEMENTASI
+
+```
+SPRINT 1 — High Impact, Low Effort
+├── Audio spectrogram generator        (banyak CTF pakai ini)
+├── Chi-square LSB stego detector      (lebih akurat dari ratio check)  
+├── $MFT direct parser                 (NTFS forensics staple)
+├── FTP/SMTP session reconstructor     (gap besar di network forensics)
+└── OSINT GPS coordinate extractor     (quick win, exiftool sudah ada)
+
+SPRINT 2 — High Impact, Medium Effort
+├── Plugin architecture refactor       (foundation untuk semua sprint berikut)
+├── Wiener's attack + FactorDB API     (RSA completion)
+├── Classical cipher expansion (10+)   (crypto breadth)
+├── AES-ECB pattern detector           (sering di intermediate CTF)
+└── HTML report generator              (nilai jual tools)
+
+SPRINT 3 — Medium Impact, High Effort  
+├── OSINT module (full)                (modul baru dari nol)
+├── Dynamic analysis (ltrace/GDB)      (reversing depth)
+├── E01/VMDK format support            (disk forensics professional)
+└── Docker image                       (distribusi & reproducibility)
 ```
 
 ---
 
-### Integrasi ke `analyze_pcap_full()`
+## ⚠️ TECHNICAL DEBT YANG PERLU DIADDRESS
 
-Di fungsi `analyze_pcap_full()` yang sudah ada, tambahkan panggilan ke fungsi baru setelah `extract_dns_queries()`:
+Beberapa hal di kode existing yang sebaiknya diperbaiki sebelum menambah fitur baru:
 
-```python
-def analyze_pcap_full(filepath):
-    print(f"\n{Fore.BLUE}{'='*60}\nPCAP FULL: {filepath.name}\n{'='*60}{Style.RESET_ALL}")
-    analyze_pcap_basic(filepath)
-    if check_early_exit(): return
-    extract_http_objects(filepath)
-    extract_dns_queries(filepath)
-    if check_early_exit(): return
-    
-    # ── BARU: Segmented payload decoder (untuk soal Ph4nt0m-style)
-    analyze_pcap_segmented_payload(filepath)    # <── TAMBAHKAN INI
-    if check_early_exit(): return
-    
-    analyze_dns_tunneling(filepath)
-    # ... dst
-```
+**Memory management** — Beberapa fungsi membaca seluruh file ke memory tanpa streaming, akan crash untuk file >1GB (disk image besar)
 
----
+**Race condition** — `found_flags_set` dan `FLAG_FOUND` diakses dari multiple thread tanpa locking yang konsisten di semua tempat
 
-### Tambahkan flag `--pcap-deep` di argparse
+**Error recovery** — Banyak except yang hanya `pass` tanpa log, membuat debugging sulit
 
-```python
-ctf.add_argument("--pcap-deep", action="store_true", dest="pcap_deep",
-    help="Exhaustive per-packet payload decode (B64/B32/hex/ROT13, reassemble flag)")
-```
+**Hardcoded paths** — Beberapa path seperti `/usr/share/wordlists/rockyou.txt` hardcoded, sebaiknya configurable
 
----
-
-### Tambahkan ke `usage()` di `raven.sh`
-
-```bash
-  --pcap-deep      Per-packet payload decode + flag reassembler (Ph4nt0m-style)
-```
-
----
-
-## Ringkasan perubahan
-
-| Fungsi baru | Tujuan | Dipicu oleh |
-|---|---|---|
-| `analyze_pcap_segmented_payload()` | Pipeline utama 6-tahap | `analyze_pcap_full()` otomatis |
-| `_try_all_encodings_on_payload()` | Decode b64/b32/hex/rot13/url per payload | Dipanggil per-frame |
-| `_try_chunked_b64()` | Decode tiap chunk kecil dari gabungan B64 | Setelah combine semua frame |
-| `_smart_flag_assembler()` | Deteksi partial flag, susun ulang berurutan | Setelah semua frame di-decode |
-
-Setelah update ini, perintah `raven myNetworkTraffic.pcap --pcap` akan secara otomatis menjalankan keseluruhan pipeline di atas dan langsung menampilkan `picoCTF{1t_w4snt_th4t_34sy_tbh_4r_f318db22}` tanpa harus manual seperti di writeup.
+**Engine regeneration** — Engine Python di-overwrite setiap run, tidak perlu jika tidak ada update

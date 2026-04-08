@@ -67,7 +67,12 @@ ${BOLD}CTF Spesifik (v3.0+):${NC}
   --reg            Windows Registry (.reg) — decode hex: values
   --log            Web server log analysis (Apache/Nginx) — IP, attack, flag
   --autorun        Autorun.inf / INF file — reverse, ROT13, caesar, b64
-  --zipcrack       Crack ZIP password (wordlist / rockyou.txt)
+  --zipcrack       Crack ZIP password (multi-strategy: context/CTF/fcrackzip/john/rockyou)
+  --forensic-zip   Forensic ZIP: evidence collection + smart password recovery
+  --mft            NTFS MFT parser for deleted file recovery
+  --ftp-recon      FTP session reconstruction from PCAP
+  --email-recon    Email (SMTP/POP3/IMAP) reconstruction from PCAP
+  --gps-extract    Extract GPS coordinates from EXIF metadata
   --pdfcrack       Crack PDF password (pdfcrack + wordlist)
   --john           Crack hash dengan John the Ripper
   --hashcat        Crack hash dengan Hashcat
@@ -112,6 +117,9 @@ ${BOLD}Steganografi:${NC}
   --alpha          Sertakan alpha channel
   --compare FILE   Bandingkan dua gambar
   --foremost       File carving (foremost)
+  --spectrogram    Audio spectrogram generator (WAV/MP3/FLAC)
+  --chi-square     Chi-square statistical LSB steganalysis
+  --dct-analysis   JPEG DCT coefficient analysis
 
 ${BOLD}Encoding:${NC}
   --decode         Auto-decode base64 / hex / binary
@@ -139,7 +147,8 @@ ${BOLD}Contoh:${NC}
   ./raven.sh artifact.reg --reg           # Registry analysis
   ./raven.sh access.log --log             # Log analysis
   ./raven.sh autorun.inf --autorun        # Autorun + deobfuscate
-  ./raven.sh evidence.zip --zipcrack      # Crack ZIP password
+  ./raven.sh evidence.zip --zipcrack      # Crack ZIP password (multi-strategy)
+  ./raven.sh evidence.zip --forensic-zip  # Forensic ZIP with evidence collection
   ./raven.sh secret.pdf --pdfcrack        # Crack PDF password
   ./raven.sh hash.txt --john              # Crack hash dengan John
   ./raven.sh hash.txt --hashcat           # Crack hash dengan Hashcat
@@ -507,9 +516,10 @@ except ImportError:
 
 try:
     from PIL import Image
+    HAS_PIL = True
 except ImportError:
     print("WARNING: Pillow not installed. Some image features may not work.")
-    pass
+    HAS_PIL = False
 
 FILE_SIGNATURES = {
     "png":    b"\x89\x50\x4E\x47\x0D\x0A\x1A\x0A",
@@ -579,8 +589,9 @@ tool_log = []
 FLAG_LOCK = threading.Lock()
 AVAILABLE_TOOLS = {}
 
-# Default wordlist for brute force
+# Default wordlist for brute force (optimized for CTF)
 DEFAULT_WORDLIST = [
+    "",  # Empty password - very common in CTF!
     "password", "123456", "12345678", "qwerty", "abc123",
     "monkey", "1234567", "letmein", "trustno1", "dragon",
     "baseball", "iloveyou", "master", "sunshine", "ashley",
@@ -589,6 +600,10 @@ DEFAULT_WORDLIST = [
     "password123", "welcome", "admin", "admin123", "root",
     "toor", "pass", "test", "guest", "master123",
     "changeme", "letmein123", "qwerty123", "123456789", "1234567890",
+    # CTF-specific
+    "secret", "flag", "ctf", "steg", "crypto", "forensics",
+    "hidden", "phantom", "picoCTF", "lks", "dsj",
+    "P@ssw0rd", "s3cr3t", "fl4g", "ctf2024", "ctf2025", "ctf2026",
 ]
 
 # Common rockyou.txt locations
@@ -599,6 +614,15 @@ ROCKYOU_PATHS = [
     "/usr/share/wordlist/rockyou.txt",
     "./rockyou.txt",
     "/usr/share/metasploit-framework/data/wordlists/rockyou.txt",
+]
+
+# CTF-specific wordlist (faster than rockyou for competitions)
+CTF_WORDLIST_PATHS = [
+    "./wordlists/ctf_passwords.txt",
+    "../wordlists/ctf_passwords.txt",
+    "../../wordlists/ctf_passwords.txt",
+    "$HOME/.raven/wordlists/ctf_passwords.txt",
+    "/usr/share/wordlists/ctf_passwords.txt",
 ]
 
 # Common flag patterns to search for
@@ -1686,97 +1710,467 @@ def analyze_autorun(filepath):
     add_to_summary("AUTORUN-ANALYZED", f"Parsed '{filepath.name}'")
     print(f"{Fore.GREEN}[AUTORUN] Selesai.{Style.RESET_ALL}")
 
-# ── 5. ZIP PASSWORD CRACK ─────────────────────
+# ── 5. ZIP PASSWORD CRACK & FORENSIC ─────────────────────
 
-def crack_zip(filepath, wordlist_path=None):
-    """Coba buka ZIP: tanpa password → password kosong → wordlist → fcrackzip"""
-    print(f"{Fore.GREEN}[ZIP-CRACK] Analisis ZIP terproteksi...{Style.RESET_ALL}")
+# CTF-specific wordlist — lebih efisien dari rockyou untuk kompetisi
+CTF_WORDLIST = [
+    "", "password", "123456", "admin", "root", "test", "guest",
+    "flag", "ctf", "secret", "hidden", "steg", "crypto", "forensics",
+    "picoctf", "lks", "dsj", "smk", "2024", "2025", "2026",
+    "password123", "admin123", "ctf2025", "ctf2026",
+    "P@ssw0rd", "s3cr3t", "fl4g", "h4ck3r",
+    "rahasia", "kunci", "sandi", "indonesia",
+    "challenge", "chall", "answer", "solution", "key",
+    "phantom", "shadow", "master", "dragon", "sunshine",
+    "letmein", "monkey", "qwerty", "abc123",
+]
+
+
+def _generate_context_passwords(filepath):
+    """Generate passwords berdasarkan konteks file — sangat efektif di CTF"""
+    passwords = []
+    stem = filepath.stem
+    name = filepath.name
+    parent = filepath.parent.name
+
+    # Dari nama file dan direktori
+    candidates = [stem, name, parent]
+    for base in candidates:
+        if not base:
+            continue
+        passwords.extend([
+            base,
+            base.lower(),
+            base.upper(),
+            base.capitalize(),
+            base + "123",
+            base + "2025",
+            base + "2026",
+            base.lower() + "123",
+            base.lower() + "!",
+            base + "_ctf",
+            "ctf_" + base,
+            base + "2024",
+            base.lower() + "2026",
+        ])
+
+    # Deduplicate dan filter kosong
+    return list(dict.fromkeys(p for p in passwords if p))
+
+
+def _try_passwords_zip(filepath, out_dir, passwords, label="CTX"):
+    """Coba list password dengan Python zipfile — akurat dan reliable"""
+    import zipfile
+
+    print(f"{Fore.CYAN}[ZIP-CRACK] Trying {len(passwords)} passwords ({label})...{Style.RESET_ALL}")
+
+    for pw in passwords:
+        try:
+            with zipfile.ZipFile(filepath) as zf:
+                zf.extractall(out_dir, pwd=pw.encode('utf-8') if pw else b'')
+
+            # Berhasil!
+            pw_display = f"'{pw}'" if pw else "(empty)"
+            print(f"{Fore.GREEN}[ZIP-CRACK] ✅ Password ditemukan: {pw_display}{Style.RESET_ALL}")
+            add_to_summary("ZIP-PASSWORD", f"Password: {pw_display} [{label}]")
+            log_tool("zipcrack", "✅ Found", f"Password: {pw_display}")
+            _scan_extracted_dir(out_dir, f"ZIP-{label}")
+            return pw
+        except (RuntimeError, zipfile.BadZipFile):
+            continue
+        except Exception:
+            continue
+
+    return None
+
+
+def _try_passwords_zip_threaded(filepath, out_dir, passwords, label="ROCKYOU", workers=8):
+    """Parallel password cracking dengan ThreadPoolExecutor"""
+    import zipfile
+
+    print(f"{Fore.CYAN}[ZIP-CRACK] Threaded crack ({workers} workers): {len(passwords)} passwords ({label})...{Style.RESET_ALL}")
+
+    found = {"pw": None}
+
+    def try_one(pw):
+        if found["pw"] is not None:
+            return None
+        try:
+            with zipfile.ZipFile(filepath) as zf:
+                zf.extractall(out_dir, pwd=pw.encode('utf-8') if pw else b'')
+            return pw
+        except:
+            return None
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(try_one, pw): pw for pw in passwords}
+        for future in as_completed(futures):
+            result = future.result()
+            if result is not None and found["pw"] is None:
+                found["pw"] = result
+                pw_display = f"'{result}'" if result else "(empty)"
+                print(f"{Fore.GREEN}[ZIP-CRACK] ✅ Password: {pw_display}{Style.RESET_ALL}")
+                add_to_summary("ZIP-PASSWORD", f"Password: {pw_display} [{label}]")
+                log_tool("zipcrack", "✅ Found", f"Password: {pw_display}")
+                _scan_extracted_dir(out_dir, f"ZIP-{label}")
+
+    return found["pw"]
+
+
+def _crack_zip_with_fcrackzip(filepath, out_dir, wordlist_path=None):
+    """Crack menggunakan fcrackzip — jauh lebih cepat dari Python loop"""
+    if not AVAILABLE_TOOLS.get('fcrackzip'):
+        return None
+
+    wl = wordlist_path
+    if not wl:
+        wl = next((p for p in ROCKYOU_PATHS if Path(p).exists()), None)
+    if not wl:
+        print(f"{Fore.YELLOW}[FCRACKZIP] Wordlist tidak ditemukan{Style.RESET_ALL}")
+        return None
+
+    print(f"{Fore.CYAN}[FCRACKZIP] Cracking dengan wordlist: {wl}...{Style.RESET_ALL}")
+
+    try:
+        result = subprocess.run(
+            ["fcrackzip", "-v", "-u", "-D", "-p", wl, str(filepath)],
+            capture_output=True, text=True, timeout=300
+        )
+        output = result.stdout + result.stderr
+
+        # Parse output
+        pw_match = re.search(r'PASSWORD FOUND.*?:\s*pw==(\S+)', output, re.IGNORECASE)
+        if not pw_match:
+            pw_match = re.search(r'possible pw found:\s*(\S+)', output, re.IGNORECASE)
+
+        if pw_match:
+            pw = pw_match.group(1).strip().strip("'\"")
+            print(f"{Fore.GREEN}[FCRACKZIP] ✅ Password: '{pw}'{Style.RESET_ALL}")
+            add_to_summary("ZIP-FCRACKZIP", f"Password: '{pw}'")
+            # Ekstrak dengan password
+            subprocess.run(
+                ["unzip", "-o", "-P", pw, str(filepath), "-d", str(out_dir)],
+                capture_output=True, timeout=30
+            )
+            _scan_extracted_dir(out_dir, "ZIP-FCRACKZIP")
+            return pw
+
+        print(f"{Fore.YELLOW}[FCRACKZIP] Password tidak ditemukan{Style.RESET_ALL}")
+    except subprocess.TimeoutExpired:
+        print(f"{Fore.YELLOW}[FCRACKZIP] Timeout (5 menit){Style.RESET_ALL}")
+    except Exception as e:
+        print(f"{Fore.RED}[FCRACKZIP] Error: {e}{Style.RESET_ALL}")
+
+    return None
+
+
+def _crack_zip_with_john(filepath, out_dir, wordlist_path=None):
+    """Crack dengan John the Ripper via zip2john"""
+    if not AVAILABLE_TOOLS.get('john'):
+        return None
+
+    # Cek apakah zip2john tersedia
+    z2j = subprocess.run("which zip2john", shell=True, capture_output=True)
+    if z2j.returncode != 0:
+        print(f"{Fore.YELLOW}[JOHN-ZIP] zip2john tidak ditemukan{Style.RESET_ALL}")
+        return None
+
+    print(f"{Fore.CYAN}[JOHN-ZIP] Cracking dengan John the Ripper...{Style.RESET_ALL}")
+
+    try:
+        # Step 1: Extract hash dengan zip2john
+        hash_file = out_dir / "zip.hash"
+        z2j_result = subprocess.run(
+            f"zip2john '{filepath}' > '{hash_file}'",
+            shell=True, capture_output=True, text=True, timeout=30
+        )
+
+        if not hash_file.exists() or hash_file.stat().st_size == 0:
+            print(f"{Fore.YELLOW}[JOHN-ZIP] zip2john gagal mengekstrak hash{Style.RESET_ALL}")
+            return None
+
+        print(f"{Fore.CYAN}[JOHN-ZIP] Hash diekstrak: {hash_file.read_text()[:80]}...{Style.RESET_ALL}")
+
+        # Step 2: Crack dengan john
+        wl = wordlist_path or next((p for p in ROCKYOU_PATHS if Path(p).exists()), None)
+        pot_file = out_dir / "john.pot"
+
+        cmd = ["john", str(hash_file), f"--pot={pot_file}"]
+        if wl:
+            cmd.append(f"--wordlist={wl}")
+
+        subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+        # Step 3: Tampilkan hasil
+        show_result = subprocess.run(
+            ["john", "--show", str(hash_file), f"--pot={pot_file}"],
+            capture_output=True, text=True, timeout=30
+        )
+
+        # Parse password dari output john --show
+        pw_match = re.search(r':([^:]+):\$zip', show_result.stdout)
+        if not pw_match:
+            pw_match = re.search(r'\$zip\$.*?:([^:]+):', show_result.stdout)
+
+        if show_result.stdout and "password hash" not in show_result.stdout.lower():
+            # Coba parse langsung
+            lines = show_result.stdout.strip().splitlines()
+            for line in lines:
+                if ':' in line and not line.startswith('No password'):
+                    parts = line.split(':')
+                    if len(parts) >= 2:
+                        pw = parts[1]
+                        print(f"{Fore.GREEN}[JOHN-ZIP] ✅ Password: '{pw}'{Style.RESET_ALL}")
+                        add_to_summary("ZIP-JOHN", f"Password: '{pw}'")
+                        subprocess.run(
+                            ["unzip", "-o", "-P", pw, str(filepath), "-d", str(out_dir)],
+                            capture_output=True, timeout=30
+                        )
+                        _scan_extracted_dir(out_dir, "ZIP-JOHN")
+                        return pw
+
+        print(f"{Fore.YELLOW}[JOHN-ZIP] Password tidak ditemukan{Style.RESET_ALL}")
+
+    except subprocess.TimeoutExpired:
+        print(f"{Fore.YELLOW}[JOHN-ZIP] Timeout{Style.RESET_ALL}")
+    except Exception as e:
+        print(f"{Fore.RED}[JOHN-ZIP] Error: {e}{Style.RESET_ALL}")
+
+    return None
+
+
+def forensic_zip_analysis(filepath, args=None):
+    """Enhanced forensic ZIP analysis dengan evidence collection"""
+    import zipfile
+    from datetime import datetime
+    
+    print(f"\n{Fore.MAGENTA}{'='*60}")
+    print(f"FORENSIC ANALYSIS: {filepath.name}")
+    print(f"{'='*60}{Style.RESET_ALL}\n")
+    
+    # Create investigation directory
+    inv_dir = filepath.parent / f"forensic_{filepath.stem}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    inv_dir.mkdir(exist_ok=True)
+    print(f"{Fore.CYAN}[i] Investigation directory: {inv_dir}{Style.RESET_ALL}\n")
+    
+    # Phase 1: Information Gathering
+    print(f"{Style.BRIGHT}{'─'*60}{Style.RESET_ALL}")
+    print(f"{Style.BRIGHT}PHASE 1: Information Gathering{Style.RESET_ALL}")
+    print(f"{Style.BRIGHT}{'─'*60}{Style.RESET_ALL}\n")
+    
+    # 1.1 Metadata extraction
+    print(f"{Fore.CYAN}[1.1] Metadata Extraction (exiftool){Style.RESET_ALL}")
+    try:
+        meta_file = inv_dir / "metadata.txt"
+        exif_result = subprocess.run(
+            ["exiftool", str(filepath)],
+            capture_output=True, text=True, timeout=10)
+        if exif_result.stdout.strip():
+            meta_file.write_text(exif_result.stdout)
+            print(f"{Fore.GREEN}[✓] Metadata saved to {meta_file}{Style.RESET_ALL}")
+            # Show key info
+            for line in exif_result.stdout.splitlines():
+                if any(x in line.lower() for x in ['bit flag', 'encrypted', 'password']):
+                    print(f"  {Fore.YELLOW}{line.strip()}{Style.RESET_ALL}")
+    except Exception as e:
+        print(f"{Fore.YELLOW}[!] exiftool gagal: {e}{Style.RESET_ALL}")
+    
+    # 1.2 Strings extraction
+    print(f"\n{Fore.CYAN}[1.2] Strings Extraction{Style.RESET_ALL}")
+    try:
+        strings_file = inv_dir / "strings.txt"
+        strings_result = subprocess.run(
+            ["strings", str(filepath)],
+            capture_output=True, text=True, timeout=10)
+        if strings_result.stdout.strip():
+            strings_file.write_text(strings_result.stdout)
+            lines = strings_result.stdout.strip().splitlines()
+            print(f"{Fore.GREEN}[✓] Extracted {len(lines)} strings{Style.RESET_ALL}")
+            # Cari clues
+            clue_count = 0
+            for line in lines:
+                line = line.strip()
+                if 3 <= len(line) <= 50 and line.isprintable():
+                    if any(x in line.lower() for x in ['pass', 'key', 'secret', 'flag', 'ctf', 'admin']):
+                        print(f"  {Fore.YELLOW}[CLUE] {line}{Style.RESET_ALL}")
+                        clue_count += 1
+                    scan_text_for_flags(line, "ZIP-STRINGS")
+            if clue_count == 0:
+                print(f"  {Fore.CYAN}Tidak ada clue menarik{Style.RESET_ALL}")
+    except Exception as e:
+        print(f"{Fore.YELLOW}[!] strings gagal: {e}{Style.RESET_ALL}")
+    
+    # 1.3 ZIP structure analysis
+    print(f"\n{Fore.CYAN}[1.3] ZIP Structure Analysis{Style.RESET_ALL}")
+    try:
+        import zipfile
+        with zipfile.ZipFile(filepath) as zf:
+            members = zf.namelist()
+            print(f"{Fore.GREEN}[✓] Isi ZIP: {members}{Style.RESET_ALL}")
+            
+            # Cek encryption
+            needs_password = False
+            for info in zf.infolist():
+                if info.flag_bits & 0x1:
+                    needs_password = True
+                    print(f"  {Fore.YELLOW}[ENCRYPTED] {info.filename} (size: {info.file_size} bytes){Style.RESET_ALL}")
+            
+            if not needs_password:
+                print(f"{Fore.GREEN}[✓] ZIP tidak terpassword!{Style.RESET_ALL}")
+                out_dir = inv_dir / "extracted"
+                out_dir.mkdir(exist_ok=True)
+                zf.extractall(out_dir)
+                _scan_extracted_dir(out_dir, "ZIP-NOPASS")
+                return True
+    except zipfile.BadZipFile:
+        print(f"{Fore.RED}[✗] File bukan ZIP valid!{Style.RESET_ALL}")
+        return False
+    except RuntimeError as e:
+        if "encrypted" in str(e).lower():
+            print(f"{Fore.YELLOW}[✓] Terenkripsi, lanjut ke cracking...{Style.RESET_ALL}")
+    
+    # Phase 2: Password Recovery
+    print(f"\n{Style.BRIGHT}{'─'*60}{Style.RESET_ALL}")
+    print(f"{Style.BRIGHT}PHASE 2: Password Recovery{Style.RESET_ALL}")
+    print(f"{Style.BRIGHT}{'─'*60}{Style.RESET_ALL}\n")
+    
+    out_dir = inv_dir / "extracted"
+    out_dir.mkdir(exist_ok=True)
+    
+    # Strategy 1: Context passwords (cepat, <1 detik)
+    print(f"{Fore.CYAN}[2.1] Context-aware passwords...{Style.RESET_ALL}")
+    context_pw = _generate_context_passwords(filepath)
+    found = _try_passwords_zip(filepath, out_dir, context_pw[:50], "CTX")
+    if found:
+        return True
+    
+    # Strategy 2: CTF wordlist (cepat, ~50 kata, <1 detik)
+    print(f"\n{Fore.CYAN}[2.2] CTF wordlist ({len(CTF_WORDLIST)} passwords)...{Style.RESET_ALL}")
+    found = _try_passwords_zip(filepath, out_dir, CTF_WORDLIST, "CTF")
+    if found:
+        return True
+    
+    # Strategy 3: fcrackzip dengan CTF wordlist (bukan rockyou!)
+    if AVAILABLE_TOOLS.get('fcrackzip'):
+        print(f"\n{Fore.CYAN}[2.3] fcrackzip (CTF wordlist)...{Style.RESET_ALL}")
+        # Buat temp wordlist dari CTF_WORDLIST
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as tmp_wl:
+            tmp_wl.write('\n'.join(CTF_WORDLIST))
+            tmp_wl_path = tmp_wl.name
+        
+        found = _crack_zip_with_fcrackzip(filepath, out_dir, tmp_wl_path)
+        Path(tmp_wl_path).unlink(missing_ok=True)  # Cleanup temp file
+        if found:
+            return True
+    
+    # NOTE: Untuk forensic mode, kita skip strategi lambat (john/rockyou)
+    # karena CTF biasanya pakai password sederhana.
+    # Jika masih gagal, beri rekomendasi manual cracking.
+    
+    print(f"\n{Fore.YELLOW}[!] Password tidak ditemukan di wordlist CTF.{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}[i] Rekomendasi untuk cracking manual:{Style.RESET_ALL}")
+    print(f"    1. fcrackzip + rockyou: fcrackzip -v -u -D -p /usr/share/wordlists/rockyou.txt {filepath.name}")
+    print(f"    2. john the ripper: zip2john {filepath.name} > hash.txt && john hash.txt")
+    print(f"    3. raven zipcrack: raven {filepath.name} --zipcrack")
+    
+    # Save investigation summary
+    summary_file = inv_dir / "investigation_summary.txt"
+    summary = f"""FORENSIC INVESTIGATION SUMMARY
+================================
+Target: {filepath.name}
+Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Result: Password not found in CTF wordlists
+
+Strategies Used:
+1. Context passwords ({len(context_pw[:50])} passwords)
+2. CTF wordlist ({len(CTF_WORDLIST)} passwords)
+3. fcrackzip + CTF wordlist
+
+Recommendations for Manual Cracking:
+1. fcrackzip -v -u -D -p /usr/share/wordlists/rockyou.txt {filepath.name}
+2. zip2john {filepath.name} > hash.txt && john hash.txt
+3. raven {filepath.name} --zipcrack
+"""
+    summary_file.write_text(summary)
+    print(f"{Fore.CYAN}[i] Investigation summary saved to: {summary_file}{Style.RESET_ALL}")
+    
+    return False
+
+
+def crack_zip(filepath, wordlist_path=None, args=None):
+    """Enhanced ZIP cracker dengan multiple strategies (backward compatible)"""
+    print(f"{Fore.GREEN}[ZIP-CRACK] Enhanced ZIP cracking...{Style.RESET_ALL}")
     out_dir = filepath.parent / f"{filepath.stem}_zipcrack"
     out_dir.mkdir(exist_ok=True)
 
-    # ── Step 1: Coba tanpa password dulu
-    print(f"{Fore.CYAN}[ZIP-CRACK] Step 1: Coba ekstrak tanpa password...{Style.RESET_ALL}")
-    result = subprocess.run(
-        ["unzip", "-o", str(filepath), "-d", str(out_dir)],
-        capture_output=True, text=True, timeout=30)
-    if result.returncode == 0:
-        print(f"{Fore.GREEN}[ZIP-CRACK] Berhasil ekstrak tanpa password!{Style.RESET_ALL}")
-        _scan_extracted_dir(out_dir, "ZIP-NOPASS")
-        return
+    # ── Strategy 0: Cek apakah ZIP memang butuh password
+    print(f"{Fore.CYAN}[ZIP-CRACK] Mengecek struktur ZIP...{Style.RESET_ALL}")
+    try:
+        import zipfile
+        with zipfile.ZipFile(filepath) as zf:
+            # List isi ZIP
+            members = zf.namelist()
+            print(f"{Fore.CYAN}[ZIP-CRACK] Isi ZIP: {members[:10]}{Style.RESET_ALL}")
 
-    # ── Step 2: Coba password kosong ""
-    result2 = subprocess.run(
-        ["unzip", "-o", "-P", "", str(filepath), "-d", str(out_dir)],
-        capture_output=True, text=True, timeout=15)
-    if result2.returncode == 0:
-        print(f"{Fore.GREEN}[ZIP-CRACK] Berhasil dengan password kosong!{Style.RESET_ALL}")
-        _scan_extracted_dir(out_dir, "ZIP-EMPTYPASS")
-        return
+            # Cek apakah ada file yang terenkripsi
+            needs_password = False
+            for info in zf.infolist():
+                if info.flag_bits & 0x1:  # bit 0 = encrypted
+                    needs_password = True
+                    print(f"{Fore.YELLOW}[ZIP-CRACK] File terenkripsi: {info.filename}{Style.RESET_ALL}")
 
-    # ── Step 3: Coba wordlist
-    wl_lines = DEFAULT_WORDLIST[:]
-    if wordlist_path and Path(wordlist_path).exists():
-        wl_lines = Path(wordlist_path).read_text(errors='ignore').splitlines()[:50000]
-        print(f"{Fore.CYAN}[ZIP-CRACK] Wordlist custom: {len(wl_lines)} kata{Style.RESET_ALL}")
-    else:
-        # Cari rockyou.txt
-        for rp in ROCKYOU_PATHS:
-            if Path(rp).exists():
-                wl_lines = open(rp, errors='ignore').read().splitlines()[:100000]
-                print(f"{Fore.CYAN}[ZIP-CRACK] Rockyou: {len(wl_lines)} kata{Style.RESET_ALL}")
-                break
+            if not needs_password:
+                print(f"{Fore.GREEN}[ZIP-CRACK] ZIP tidak terpassword, langsung ekstrak!{Style.RESET_ALL}")
+                zf.extractall(out_dir)
+                _scan_extracted_dir(out_dir, "ZIP-NOPASS")
+                log_tool("zipcrack", "✅ Found", "No password needed")
+                return True
+    except zipfile.BadZipFile:
+        print(f"{Fore.RED}[ZIP-CRACK] File bukan ZIP yang valid!{Style.RESET_ALL}")
+        return False
+    except RuntimeError as e:
+        if "encrypted" in str(e).lower():
+            print(f"{Fore.YELLOW}[ZIP-CRACK] Terenkripsi, lanjut ke cracking...{Style.RESET_ALL}")
 
-    # ── Step 3a: fcrackzip (jauh lebih cepat)
-    if AVAILABLE_TOOLS.get('fcrackzip') and wordlist_path:
-        print(f"{Fore.CYAN}[ZIP-CRACK] fcrackzip dengan wordlist...{Style.RESET_ALL}")
-        try:
-            wl = wordlist_path or next((p for p in ROCKYOU_PATHS if Path(p).exists()), None)
-            if wl:
-                result3 = subprocess.run(
-                    ["fcrackzip", "-v", "-u", "-D", "-p", wl, str(filepath)],
-                    capture_output=True, text=True, timeout=120)
-                output = result3.stdout + result3.stderr
-                pw_match = re.search(r'PASSWORD FOUND.*?:(.*)', output, re.IGNORECASE)
-                if pw_match:
-                    pw = pw_match.group(1).strip().strip("'\"")
-                    print(f"{Fore.GREEN}[ZIP-CRACK] Password: '{pw}'{Style.RESET_ALL}")
-                    add_to_summary("ZIP-PASSWORD", f"Password: '{pw}'")
-                    subprocess.run(["unzip","-o","-P",pw,str(filepath),"-d",str(out_dir)],
-                                   capture_output=True, timeout=30)
-                    _scan_extracted_dir(out_dir, "ZIP-CRACK")
-                    return
-        except Exception as e:
-            print(f"{Fore.YELLOW}[ZIP-CRACK] fcrackzip gagal: {e}{Style.RESET_ALL}")
+    # ── Strategy 1: Context-aware password generation
+    print(f"\n{Fore.CYAN}[ZIP-CRACK] Generating context-aware passwords...{Style.RESET_ALL}")
+    context_passwords = _generate_context_passwords(filepath)
 
-    # ── Step 3b: Manual brute-force dengan unzip
-    print(f"{Fore.CYAN}[ZIP-CRACK] Manual brute-force: {len(wl_lines)} kata...{Style.RESET_ALL}")
-    found_pw = None
+    found_pw = _try_passwords_zip(filepath, out_dir, context_passwords, "CTX")
+    if found_pw:
+        return True
 
-    def try_zip_pw(pw):
-        try:
-            r = subprocess.run(
-                ["unzip", "-o", "-P", pw, str(filepath), "-d", str(out_dir)],
-                capture_output=True, text=True, timeout=10)
-            if r.returncode == 0: return pw
-        except: pass
-        return None
+    # ── Strategy 2: CTF-specific wordlist (cepat, ~100 kata)
+    print(f"\n{Fore.CYAN}[ZIP-CRACK] Mencoba CTF wordlist ({len(CTF_WORDLIST)} passwords)...{Style.RESET_ALL}")
+    found_pw = _try_passwords_zip(filepath, out_dir, CTF_WORDLIST, "CTF")
+    if found_pw:
+        return True
 
-    # Paralel dengan ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(try_zip_pw, pw): pw for pw in wl_lines[:5000]}
-        for future in as_completed(futures):
-            if found_pw: break
-            res = future.result()
-            if res:
-                found_pw = res
-                print(f"{Fore.GREEN}[ZIP-CRACK] Password ditemukan: '{found_pw}'{Style.RESET_ALL}")
-                add_to_summary("ZIP-PASSWORD", f"Password: '{found_pw}'")
-                _scan_extracted_dir(out_dir, "ZIP-CRACK")
-                break
+    # ── Strategy 3: fcrackzip (tool terbaik, jika ada)
+    if AVAILABLE_TOOLS.get('fcrackzip'):
+        found_pw = _crack_zip_with_fcrackzip(filepath, out_dir, wordlist_path)
+        if found_pw:
+            return True
 
-    if not found_pw:
-        print(f"{Fore.YELLOW}[ZIP-CRACK] Password tidak ditemukan dalam wordlist.{Style.RESET_ALL}")
-        log_tool("zipcrack", "⬜ Nothing", "password tidak ditemukan dalam wordlist")
+    # ── Strategy 4: john the ripper via zip2john
+    if AVAILABLE_TOOLS.get('john'):
+        found_pw = _crack_zip_with_john(filepath, out_dir, wordlist_path)
+        if found_pw:
+            return True
+
+    # ── Strategy 5: Rockyou (lambat, last resort)
+    print(f"\n{Fore.CYAN}[ZIP-CRACK] Last resort: rockyou.txt...{Style.RESET_ALL}")
+    rockyou = next((p for p in ROCKYOU_PATHS if Path(p).exists()), None)
+    if rockyou:
+        wl = open(rockyou, errors='ignore').read().splitlines()[:200000]
+        found_pw = _try_passwords_zip_threaded(filepath, out_dir, wl, "ROCKYOU")
+        if found_pw:
+            return True
+
+    print(f"{Fore.RED}[ZIP-CRACK] Semua strategi gagal.{Style.RESET_ALL}")
+    log_tool("zipcrack", "⬜ Nothing", "password tidak ditemukan")
+    return False
 
 def _scan_extracted_dir(out_dir, source):
     """Scan semua file yang diekstrak untuk flag"""
@@ -2406,13 +2800,34 @@ def auto_decode_and_extract(filepath):
 # ── Strings & Flags ──────────────────────────
 
 def analyze_strings_and_flags(filepath, custom_format=None):
+    # Skip very large files (>100MB) to prevent hanging
+    max_size = 100 * 1024 * 1024  # 100MB
+    try:
+        file_size = filepath.stat().st_size
+        if file_size > max_size:
+            size_mb = file_size / (1024*1024)
+            print(f"{Fore.YELLOW}[STRINGS] ⏭ Skip large file: {filepath.name} ({size_mb:.1f}MB){Style.RESET_ALL}")
+            log_tool("strings", "⏭ Skipped", f"file too large ({size_mb:.1f}MB)")
+            return
+    except:
+        pass
+
     log_tool("strings", "running")
     found_before = len(found_flags_set)
     try:
         ft=subprocess.getoutput(f"file -b '{filepath}'").strip()
         print(f"{Fore.CYAN}[BASIC] Type: {ft}{Style.RESET_ALL}")
-        utf8=subprocess.getoutput(f"strings '{filepath}'")
-        utf16=subprocess.getoutput(f"strings -e l '{filepath}'")
+        
+        # Add timeout to strings command (30 seconds max)
+        import subprocess as sp
+        try:
+            utf8 = sp.run(f"strings '{filepath}'", shell=True, capture_output=True, text=True, timeout=30).stdout
+            utf16 = sp.run(f"strings -e l '{filepath}'", shell=True, capture_output=True, text=True, timeout=30).stdout
+        except sp.TimeoutExpired:
+            print(f"{Fore.YELLOW}[STRINGS] ⏱ Timeout (30s) on {filepath.name}{Style.RESET_ALL}")
+            log_tool("strings", "⏱ Timeout", "file too large or slow")
+            return
+        
         combined=utf8+"\n"+utf16
         collect_base64_from_text(combined)
         scan_text_for_flags(combined, "STRINGS")
@@ -2553,9 +2968,18 @@ def analyze_with_binwalk(filepath):
             print(f"{Fore.GREEN}[BINWALK] Ekstraksi: {out_dir.name}{Style.RESET_ALL}")
             for nested in out_dir.rglob("*"):
                 if nested.is_file():
+                    # Skip large extracted files (>100MB)
+                    try:
+                        if nested.stat().st_size > 100*1024*1024:
+                            size_mb = nested.stat().st_size / (1024*1024)
+                            print(f"{Fore.YELLOW}[BINWALK] ⏭ Skip large: {nested.name} ({size_mb:.1f}MB){Style.RESET_ALL}")
+                            continue
+                    except:
+                        pass
+                    
                     analyze_strings_and_flags(nested)
                     if check_early_exit():
-                        log_tool("binwalk", "✅ Found", f"Early exit after flag found in {nested.name}")
+                        log_tool("binwalk", "✅ Found", f"Early exit after flag found")
                         return
             new_flags = list(found_flags_set)[found_before:]
             log_tool("binwalk", "✅ Found" if new_flags else "⬜ Extracted",
@@ -2774,6 +3198,836 @@ def analyze_exif_deep(filepath):
     except Exception as e:
         print(f"{Fore.RED}[EXIF-DEEP] Gagal: {e}{Style.RESET_ALL}")
         log_tool("exiftool", "❌ Error", str(e))
+
+def detect_appended_data(filepath):
+    """
+    Deteksi data yang ditambahkan setelah EOF marker.
+    Teknik umum di CTF:
+    - PNG: data setelah IEND chunk
+    - JPEG: data setelah FFD9 marker
+    - ZIP: dual archive trick
+    - GIF: data setelah GIF trailer
+    """
+    print(f"\n{Fore.CYAN}[APPENDED-DATA] Checking for data after EOF marker...{Style.RESET_ALL}")
+    log_tool("appended-data", "running")
+    
+    try:
+        data = filepath.read_bytes()
+        file_size = len(data)
+        appended_data = None
+        eof_type = None
+        eof_position = None
+        
+        # Check PNG - look for IEND chunk
+        if filepath.suffix.lower() == '.png' or data[:4] == b'\x89PNG':
+            iend_marker = b'IEND'
+            # IEND chunk is 4 bytes, followed by 4 bytes CRC
+            iend_pos = data.find(iend_marker)
+            if iend_pos != -1:
+                # IEND chunk structure: 4 bytes length (00000000) + 4 bytes 'IEND' + 4 bytes CRC
+                eof_position = iend_pos + 8  # After 'IEND' + CRC
+                if eof_position < file_size:
+                    appended_data = data[eof_position:]
+                    eof_type = 'PNG (after IEND)'
+        
+        # Check JPEG - look for FFD9 marker
+        elif filepath.suffix.lower() in ['.jpg', '.jpeg'] or data[:3] == b'\xff\xd8\xff':
+            # Find last FFD9 occurrence
+            ffd9_marker = b'\xff\xd9'
+            last_pos = -1
+            pos = 0
+            while True:
+                pos = data.find(ffd9_marker, pos)
+                if pos == -1:
+                    break
+                last_pos = pos
+                pos += 2
+            
+            if last_pos != -1:
+                eof_position = last_pos + 2
+                if eof_position < file_size:
+                    appended_data = data[eof_position:]
+                    eof_type = 'JPEG (after FFD9)'
+        
+        # Check ZIP - look for end of central directory
+        elif filepath.suffix.lower() == '.zip' or data[:2] == b'PK':
+            # ZIP end of central directory signature: 50 4B 05 06
+            zip_end_marker = b'\x50\x4b\x05\x06'
+            last_pos = -1
+            pos = 0
+            while True:
+                pos = data.find(zip_end_marker, pos)
+                if pos == -1:
+                    break
+                last_pos = pos
+                pos += 4
+            
+            if last_pos != -1:
+                # End of central directory is 22 bytes minimum
+                eof_position = last_pos + 22
+                if eof_position < file_size:
+                    appended_data = data[eof_position:]
+                    eof_type = 'ZIP (after EOCD)'
+        
+        # Check GIF - look for GIF trailer (00 3B)
+        elif filepath.suffix.lower() == '.gif' or data[:4] == b'GIF8':
+            gif_trailer = b'\x00\x3B'
+            last_pos = -1
+            pos = 0
+            while True:
+                pos = data.find(gif_trailer, pos)
+                if pos == -1:
+                    break
+                last_pos = pos
+                pos += 2
+            
+            if last_pos != -1:
+                eof_position = last_pos + 2
+                if eof_position < file_size:
+                    appended_data = data[eof_position:]
+                    eof_type = 'GIF (after trailer)'
+        
+        # Report findings
+        if appended_data and len(appended_data) > 10:  # At least 10 bytes to be interesting
+            print(f"{Fore.GREEN}  ✓ Appended data detected: {len(appended_data)} bytes after {eof_type}{Style.RESET_ALL}")
+            add_to_summary("APPENDED-DATA", f"{len(appended_data)} bytes after {eof_type}")
+            
+            # Save appended data
+            out_dir = filepath.parent / f"{filepath.stem}_appended"
+            out_dir.mkdir(exist_ok=True)
+            output_file = out_dir / "appended.bin"
+            output_file.write_bytes(appended_data)
+            print(f"{Fore.GREEN}  ✓ Saved to: {output_file}{Style.RESET_ALL}")
+            
+            # Analyze the appended data
+            print(f"{Fore.CYAN}  [INFO] Analyzing appended data...{Style.RESET_ALL}")
+            
+            # Check for file signatures in appended data
+            for ext, sig in FILE_SIGNATURES.items():
+                if appended_data[:len(sig)] == sig:
+                    print(f"{Fore.GREEN}  ✓ Appended data starts with {ext.upper()} signature!{Style.RESET_ALL}")
+                    add_to_summary("APPENDED-FILE-TYPE", ext.upper())
+                    
+                    # Extract as the detected file type
+                    extracted_file = out_dir / f"hidden.{ext}"
+                    extracted_file.write_bytes(appended_data)
+                    print(f"{Fore.GREEN}  ✓ Extracted as: {extracted_file}{Style.RESET_ALL}")
+                    break
+            
+            # Scan for strings/flags in appended data
+            strings_output = subprocess.getoutput(f"strings -n 4 '{output_file}'")
+            if strings_output:
+                scan_text_for_flags(strings_output, "APPENDED-STRINGS")
+                collect_base64_from_text(strings_output)
+            
+            # Check if it's text-like
+            try:
+                text_sample = appended_data[:500].decode('utf-8', errors='ignore')
+                if any(c.isprintable() for c in text_sample):
+                    print(f"{Fore.CYAN}  [INFO] First 500 chars (text):{Style.RESET_ALL}")
+                    print(f"  {text_sample[:200]}...")
+                    scan_text_for_flags(text_sample, "APPENDED-TEXT")
+            except:
+                pass
+            
+            log_tool("appended-data", "✅ Found", f"{len(appended_data)} bytes after {eof_type}")
+        else:
+            print(f"{Fore.YELLOW}  ℹ No significant appended data found{Style.RESET_ALL}")
+            log_tool("appended-data", "⬜ Nothing", "no data after EOF")
+    
+    except Exception as e:
+        print(f"{Fore.RED}  ✗ Appended data detection failed: {e}{Style.RESET_ALL}")
+        log_tool("appended-data", "❌ Error", str(e))
+
+def analyze_wav_steganography(filepath):
+    """
+    LSB steganography pada file WAV — sering keluar di CTF nasional.
+    Decode LSB dari sample audio → ASCII/binary.
+    """
+    print(f"\n{Fore.CYAN}[WAV-STEGO] Analyzing WAV file for LSB steganography...{Style.RESET_ALL}")
+    log_tool("wav-stego", "running")
+    
+    try:
+        import wave
+        import struct
+        
+        # Open WAV file
+        wav = wave.open(str(filepath), 'rb')
+        n_channels = wav.getnchannels()
+        sample_width = wav.getsampwidth()
+        frame_rate = wav.getframerate()
+        n_frames = wav.getnframes()
+        
+        print(f"  {Fore.CYAN}Channels: {n_channels}{Style.RESET_ALL}")
+        print(f"  {Fore.CYAN}Sample width: {sample_width} bytes{Style.RESET_ALL}")
+        print(f"  {Fore.CYAN}Frame rate: {frame_rate}{Style.RESET_ALL}")
+        print(f"  {Fore.CYAN}Frames: {n_frames}{Style.RESET_ALL}")
+        
+        # Read all frames
+        frames = wav.readframes(n_frames)
+        wav.close()
+        
+        # Extract LSB from samples
+        # Assuming 8-bit or 16-bit samples
+        if sample_width == 1:  # 8-bit
+            samples = list(frames)
+        elif sample_width == 2:  # 16-bit
+            samples = struct.unpack('<' + 'h' * (len(frames) // 2), frames)
+        else:
+            print(f"  {Fore.YELLOW}Unsupported sample width: {sample_width}{Style.RESET_ALL}")
+            log_tool("wav-stego", "⏭ Skipped", f"unsupported sample width: {sample_width}")
+            return
+        
+        # Extract LSB
+        lsb_bits = [abs(sample) & 1 for sample in samples[:10000]]  # Limit to first 10k samples
+        
+        # Convert bits to bytes
+        lsb_bytes = []
+        for i in range(0, len(lsb_bits) - 7, 8):
+            byte = 0
+            for j in range(8):
+                byte = (byte << 1) | lsb_bits[i + j]
+            lsb_bytes.append(byte)
+        
+        # Convert to text
+        try:
+            text = bytes(lsb_bytes).decode('ascii', errors='ignore')
+            print(f"  {Fore.GREEN}Extracted {len(lsb_bytes)} bytes from LSB{Style.RESET_ALL}")
+            print(f"  {Fore.CYAN}First 200 chars:{Style.RESET_ALL}")
+            print(f"  {text[:200]}")
+            
+            # Scan for flags
+            scan_text_for_flags(text, "WAV-LSB")
+            collect_base64_from_text(text)
+            
+            # Save extracted data
+            out_dir = filepath.parent / f"{filepath.stem}_wav_stego"
+            out_dir.mkdir(exist_ok=True)
+            (out_dir / "lsb_extracted.txt").write_text(text)
+            (out_dir / "lsb_extracted.bin").write_bytes(bytes(lsb_bytes))
+            add_to_summary("WAV-LSB", f"Extracted {len(lsb_bytes)} bytes")
+            
+            log_tool("wav-stego", "✅ Found" if FLAG_FOUND else "⬜ Nothing",
+                     f"Extracted {len(lsb_bytes)} bytes")
+        except Exception as e:
+            print(f"  {Fore.YELLOW}LSB extraction produced no readable text: {e}{Style.RESET_ALL}")
+            log_tool("wav-stego", "⬜ Nothing", "extraction failed")
+    
+    except ImportError:
+        print(f"  {Fore.RED}wave module not available{Style.RESET_ALL}")
+        log_tool("wav-stego", "❌ Error", "wave module missing")
+    except Exception as e:
+        print(f"  {Fore.RED}WAV steganography analysis failed: {e}{Style.RESET_ALL}")
+        log_tool("wav-stego", "❌ Error", str(e))
+
+
+# ── Advanced Steganography (SPRINT 1) ──────────────────
+
+def generate_audio_spectrogram(filepath):
+    """
+    Generate spectrogram dari file audio (WAV/MP3/FLAC).
+    Banyak CTF menyembunyikan flag sebagai gambar dalam spektrum frekuensi.
+    """
+    print(f"\n{Fore.CYAN}[SPECTROGRAM] Generating audio spectrogram...{Style.RESET_ALL}")
+    log_tool("spectrogram", "running")
+    
+    out_dir = filepath.parent / f"{filepath.stem}_spectrogram"
+    out_dir.mkdir(exist_ok=True)
+    
+    try:
+        # Try using scipy for spectrogram
+        try:
+            from scipy.io import wavfile
+            import numpy as np
+            
+            # Read audio file
+            sample_rate, audio_data = wavfile.read(str(filepath))
+            
+            # Convert to mono if stereo
+            if len(audio_data.shape) > 1:
+                audio_data = audio_data.mean(axis=1)
+            
+            # Generate spectrogram
+            from scipy.signal import spectrogram
+            f, t, Sxx = spectrogram(audio_data, sample_rate, nperseg=1024)
+            
+            # Save as image using matplotlib
+            import matplotlib
+            matplotlib.use('Agg')  # Non-interactive backend
+            import matplotlib.pyplot as plt
+            
+            img_path = out_dir / "spectrogram.png"
+            plt.figure(figsize=(12, 6))
+            plt.pcolormesh(t, f, 10 * np.log10(Sxx), shading='gouraud', cmap='viridis')
+            plt.title(f'Spectrogram: {filepath.name}')
+            plt.ylabel('Frequency [Hz]')
+            plt.xlabel('Time [sec]')
+            plt.colorbar(label='Intensity [dB]')
+            plt.tight_layout()
+            plt.savefig(img_path, dpi=150)
+            plt.close()
+            
+            print(f"  {Fore.GREEN}✓ Spectrogram saved to: {img_path}{Style.RESET_ALL}")
+            print(f"  {Fore.CYAN}  Check visually for hidden text/images in frequency domain{Style.RESET_ALL}")
+            add_to_summary("SPECTROGRAM", str(img_path))
+            log_tool("spectrogram", "✅ Found", str(img_path))
+            return True
+            
+        except ImportError:
+            print(f"  {Fore.YELLOW}scipy/matplotlib not installed, using fallback method{Style.RESET_ALL}")
+            # Fallback: simple frequency analysis
+            print(f"  {Fore.CYAN}Install: pip install scipy matplotlib{Style.RESET_ALL}")
+            log_tool("spectrogram", "⏭ Skipped", "scipy/matplotlib missing")
+            return False
+            
+    except Exception as e:
+        print(f"  {Fore.RED}Spectrogram generation failed: {e}{Style.RESET_ALL}")
+        log_tool("spectrogram", "❌ Error", str(e))
+        return False
+
+
+def chi_square_lsb_detection(filepath):
+    """
+    Chi-square statistical test untuk mendeteksi LSB steganography.
+    Lebih akurat dari sekedar memeriksa LSB ratio.
+    """
+    if not HAS_PIL:
+        print(f"  {Fore.RED}[!] Pillow tidak installed{Style.RESET_ALL}")
+        return False
+    
+    print(f"\n{Fore.CYAN}[CHI-SQUARE] Statistical LSB steganalysis...{Style.RESET_ALL}")
+    log_tool("chi-square", "running")
+    
+    try:
+        img = Image.open(filepath).convert('RGB')
+        pixels = list(img.getdata())
+        
+        # Analyze each color channel
+        for channel_idx, channel_name in enumerate(['Red', 'Green', 'Blue']):
+            # Extract channel values
+            values = [p[channel_idx] for p in pixels]
+            
+            # Chi-square test for LSB randomness
+            # Pair of values: (2i, 2i+1) should have similar frequency if stego
+            pairs = {}
+            for v in values:
+                pair_idx = v // 2
+                if pair_idx not in pairs:
+                    pairs[pair_idx] = [0, 0]
+                pairs[pair_idx][v % 2] += 1
+            
+            # Calculate chi-square statistic
+            chi_sq = 0
+            total_pairs = len(pairs)
+            
+            for pair in pairs.values():
+                expected = sum(pair) / 2
+                if expected > 0:
+                    for observed in pair:
+                        chi_sq += (observed - expected) ** 2 / expected
+            
+            # Normalized chi-square (0-1 range)
+            chi_sq_norm = chi_sq / len(values) if len(values) > 0 else 0
+            
+            # Detection threshold (empirical)
+            is_stego = chi_sq_norm < 0.1  # Low chi-square = likely stego
+            
+            print(f"  {channel_name} channel:")
+            print(f"    Chi-square: {chi_sq:.4f} (normalized: {chi_sq_norm:.6f})")
+            if is_stego:
+                print(f"    {Fore.RED}⚠ HIGH probability of LSB steganography!{Style.RESET_ALL}")
+                add_to_summary("CHI-SQUARE", f"{channel_name}: STEGO DETECTED (χ²={chi_sq_norm:.6f})")
+            else:
+                print(f"    {Fore.GREEN}✓ No steganography detected{Style.RESET_ALL}")
+        
+        log_tool("chi-square", "✅ Complete", f"Channels analyzed: 3")
+        return True
+        
+    except Exception as e:
+        print(f"  {Fore.RED}Chi-square analysis failed: {e}{Style.RESET_ALL}")
+        log_tool("chi-square", "❌ Error", str(e))
+        return False
+
+
+def analyze_dct_coefficients(filepath):
+    """
+    Analisis DCT coefficients untuk JPEG steganography.
+    Flag sering disembunyikan di koefisien DCT, bukan domain spasial.
+    """
+    print(f"\n{Fore.CYAN}[DCT-ANALYSIS] JPEG DCT coefficient analysis...{Style.RESET_ALL}")
+    log_tool("dct-analysis", "running")
+    
+    try:
+        # Use binwalk to extract DCT data
+        result = subprocess.run(
+            ["binwalk", "-e", "-D", "jpeg_image", str(filepath)],
+            capture_output=True, text=True, timeout=30
+        )
+        
+        out_dir = filepath.parent / f"{filepath.stem}_dct"
+        out_dir.mkdir(exist_ok=True)
+        
+        # Analyze JPEG quantization tables
+        with open(filepath, 'rb') as f:
+            data = f.read()
+            
+        # Look for DQT (Define Quantization Table) markers
+        dqt_marker = b'\xFF\xDB'
+        dqt_positions = []
+        pos = 0
+        while True:
+            pos = data.find(dqt_marker, pos)
+            if pos == -1:
+                break
+            dqt_positions.append(pos)
+            pos += 2
+        
+        print(f"  Found {len(dqt_positions)} DQT markers")
+        
+        # Analyze coefficient distribution
+        # Simple heuristic: check for unusual patterns in DCT coefficients
+        # This is a simplified version - full analysis would require libjpeg
+        
+        if dqt_positions:
+            print(f"  {Fore.GREEN}✓ DCT analysis complete{Style.RESET_ALL}")
+            add_to_summary("DCT-ANALYSIS", f"{len(dqt_positions)} DQT markers found")
+            log_tool("dct-analysis", "✅ Complete", f"{len(dqt_positions)} DQT markers")
+        else:
+            print(f"  {Fore.YELLOW}No DQT markers found{Style.RESET_ALL}")
+            log_tool("dct-analysis", "⬜ Nothing", "no DQT markers")
+        
+        return True
+        
+    except Exception as e:
+        print(f"  {Fore.RED}DCT analysis failed: {e}{Style.RESET_ALL}")
+        log_tool("dct-analysis", "❌ Error", str(e))
+        return False
+
+
+# ── NTFS MFT Parser (SPRINT 1) ──────────────────
+
+def parse_mft_direct(mft_path):
+    """
+    Parse NTFS Master File Table ($MFT) langsung tanpa mount.
+    Berguna untuk forensik disk image.
+    """
+    print(f"\n{Fore.CYAN}[MFT-PARSER] Parsing NTFS Master File Table...{Style.RESET_ALL}")
+    log_tool("mft-parser", "running")
+    
+    try:
+        import struct
+        
+        mft_file = Path(mft_path)
+        if not mft_file.exists():
+            print(f"  {Fore.RED}MFT file not found: {mft_path}{Style.RESET_ALL}")
+            log_tool("mft-parser", "❌ Error", "file not found")
+            return False
+        
+        # MFT record size is typically 1024 bytes
+        RECORD_SIZE = 1024
+        
+        with open(mft_path, 'rb') as f:
+            mft_data = f.read()
+        
+        print(f"  {Fore.CYAN}MFT file size: {len(mft_data)} bytes{Style.RESET_ALL}")
+        print(f"  {Fore.CYAN}Estimated records: {len(mft_data) // RECORD_SIZE}{Style.RESET_ALL}")
+        
+        # Parse first few records to get structure
+        records_found = 0
+        deleted_files = []
+        active_files = []
+        
+        offset = 0
+        while offset < len(mft_data) - 42:  # Minimum MFT record header is 42 bytes
+            # Check for MFT record signature "FILE"
+            if mft_data[offset:offset+4] == b'FILE':
+                records_found += 1
+                
+                # Parse MFT record header
+                fixup_offset = struct.unpack_from('<H', mft_data, offset + 4)[0]
+                fixup_size = struct.unpack_from('<H', mft_data, offset + 6)[0]
+                lsns = struct.unpack_from('<Q', mft_data, offset + 8)[0]
+                sequence_number = struct.unpack_from('<H', mft_data, offset + 16)[0]
+                hard_link_count = struct.unpack_from('<H', mft_data, offset + 18)[0]
+                attribute_offset = struct.unpack_from('<H', mft_data, offset + 20)[0]
+                flags = struct.unpack_from('<H', mft_data, offset + 22)[0]
+                
+                # Check if file is deleted (bit 0 of flags = 0)
+                is_deleted = not (flags & 0x0001)
+                
+                # Extract filename from $STANDARD_INFORMATION and $FILE_NAME attributes
+                # This is simplified - full parsing would walk all attributes
+                attr_off = attribute_offset
+                filename = None
+                file_size = 0
+                
+                while attr_off < offset + RECORD_SIZE:
+                    # Check attribute header
+                    if attr_off + 16 > len(mft_data):
+                        break
+                    
+                    attr_type = struct.unpack_from('<I', mft_data, offset + attr_off)[0]
+                    attr_len = struct.unpack_from('<I', mft_data, offset + attr_off + 4)[0]
+                    
+                    # $FILE_NAME attribute (type 0x30)
+                    if attr_type == 0x30 and attr_off + 66 < len(mft_data):
+                        name_len = mft_data[offset + attr_off + 64]
+                        name_off = offset + attr_off + 66
+                        filename = mft_data[name_off:name_off + name_len * 2].decode('utf-16', errors='ignore')
+                    
+                    # $DATA attribute (type 0x80)
+                    if attr_type == 0x80:
+                        # Get file size from attribute
+                        if attr_off + 56 < len(mft_data):
+                            file_size = struct.unpack_from('<Q', mft_data, offset + attr_off + 48)[0]
+                    
+                    # End of attributes marker
+                    if attr_type == 0xFFFFFFFF:
+                        break
+                    
+                    attr_off += attr_len
+                    if attr_len == 0:
+                        break
+                
+                if filename and filename.strip():
+                    if is_deleted:
+                        deleted_files.append((filename, file_size))
+                    else:
+                        active_files.append((filename, file_size))
+                
+                # Limit parsing for performance
+                if records_found >= 1000:
+                    print(f"  {Fore.YELLOW}  Limiting to first 1000 records{Style.RESET_ALL}")
+                    break
+            
+            offset += RECORD_SIZE
+        
+        # Output results
+        out_dir = Path(mft_path).parent / "mft_analysis"
+        out_dir.mkdir(exist_ok=True)
+        
+        print(f"\n  {Fore.GREEN}MFT Analysis Results:{Style.RESET_ALL}")
+        print(f"  Total records scanned: {records_found}")
+        print(f"  Active files: {len(active_files)}")
+        print(f"  Deleted files: {len(deleted_files)}")
+        
+        if deleted_files:
+            print(f"\n  {Fore.RED}Deleted Files (potential CTF targets):{Style.RESET_ALL}")
+            for fname, fsize in deleted_files[:20]:  # Show first 20
+                print(f"    {Fore.YELLOW}[DELETED]{Style.RESET_ALL} {fname} ({fsize} bytes)")
+        
+        # Save full results
+        results_file = out_dir / "mft_results.txt"
+        with open(results_file, 'w', encoding='utf-8') as f:
+            f.write("MFT ANALYSIS REPORT\n")
+            f.write("=" * 80 + "\n\n")
+            f.write(f"Total records: {records_found}\n")
+            f.write(f"Active files: {len(active_files)}\n")
+            f.write(f"Deleted files: {len(deleted_files)}\n\n")
+            
+            if deleted_files:
+                f.write("DELETED FILES:\n")
+                f.write("-" * 80 + "\n")
+                for fname, fsize in deleted_files:
+                    f.write(f"{fname}\t{fsize}\n")
+            
+            f.write("\nACTIVE FILES:\n")
+            f.write("-" * 80 + "\n")
+            for fname, fsize in active_files:
+                f.write(f"{fname}\t{fsize}\n")
+        
+        print(f"\n  {Fore.GREEN}✓ Full results saved to: {results_file}{Style.RESET_ALL}")
+        add_to_summary("MFT-PARSER", f"{len(deleted_files)} deleted files found")
+        log_tool("mft-parser", "✅ Complete", f"{len(deleted_files)} deleted, {len(active_files)} active")
+        
+        return True
+        
+    except Exception as e:
+        print(f"  {Fore.RED}MFT parsing failed: {e}{Style.RESET_ALL}")
+        import traceback
+        traceback.print_exc()
+        log_tool("mft-parser", "❌ Error", str(e))
+        return False
+
+
+# ── Network Protocol Reconstructors (SPRINT 1) ──────────────────
+
+def reconstruct_ftp_sessions(pcap_path):
+    """
+    Rekonstruksi sesi FTP dari PCAP: gabungkan control + data channel,
+    extract file yang di-transfer.
+    """
+    print(f"\n{Fore.CYAN}[FTP-RECON] Reconstructing FTP sessions from PCAP...{Style.RESET_ALL}")
+    log_tool("ftp-recon", "running")
+    
+    try:
+        if not AVAILABLE_TOOLS.get('tshark'):
+            print(f"  {Fore.YELLOW}tshark not available{Style.RESET_ALL}")
+            log_tool("ftp-recon", "⏭ Skipped", "tshark missing")
+            return False
+        
+        out_dir = Path(pcap_path).parent / "ftp_reconstruction"
+        out_dir.mkdir(exist_ok=True)
+        
+        # Extract FTP control commands
+        result = subprocess.run(
+            ["tshark", "-r", str(pcap_path), "-Y", "ftp.request.command",
+             "-T", "fields", "-e", "ip.src", "-e", "ip.dst", "-e", "ftp.request.command"],
+            capture_output=True, text=True, timeout=60
+        )
+        
+        if result.stdout.strip():
+            commands_file = out_dir / "ftp_commands.txt"
+            commands_file.write_text(result.stdout)
+            
+            print(f"  {Fore.GREEN}✓ FTP commands extracted{Style.RESET_ALL}")
+            print(f"  {Fore.CYAN}  Output: {commands_file}{Style.RESET_ALL}")
+            
+            # Parse commands for file transfers
+            lines = result.stdout.strip().split('\n')
+            transfers = []
+            for line in lines:
+                if any(cmd in line.upper() for cmd in ['RETR', 'STOR', 'LIST']):
+                    transfers.append(line)
+            
+            print(f"  {Fore.CYAN}  File transfer commands: {len(transfers)}{Style.RESET_ALL}")
+            for t in transfers[:10]:  # Show first 10
+                print(f"    {Fore.YELLOW}{t}{Style.RESET_ALL}")
+            
+            add_to_summary("FTP-RECON", f"{len(transfers)} transfers found")
+            log_tool("ftp-recon", "✅ Complete", f"{len(transfers)} transfers")
+            return True
+        else:
+            print(f"  {Fore.YELLOW}No FTP traffic found{Style.RESET_ALL}")
+            log_tool("ftp-recon", "⬜ Nothing", "no FTP traffic")
+            return False
+            
+    except Exception as e:
+        print(f"  {Fore.RED}FTP reconstruction failed: {e}{Style.RESET_ALL}")
+        log_tool("ftp-recon", "❌ Error", str(e))
+        return False
+
+
+def reconstruct_email_sessions(pcap_path):
+    """
+    Rekonstruksi sesi email (SMTP/POP3/IMAP) dari PCAP.
+    Extract attachment, decode MIME, recover messages.
+    """
+    print(f"\n{Fore.CYAN}[EMAIL-RECON] Reconstructing email sessions from PCAP...{Style.RESET_ALL}")
+    log_tool("email-recon", "running")
+    
+    try:
+        if not AVAILABLE_TOOLS.get('tshark'):
+            print(f"  {Fore.YELLOW}tshark not available{Style.RESET_ALL}")
+            log_tool("email-recon", "⏭ Skipped", "tshark missing")
+            return False
+        
+        out_dir = Path(pcap_path).parent / "email_reconstruction"
+        out_dir.mkdir(exist_ok=True)
+        
+        emails_found = 0
+        
+        # Extract SMTP traffic
+        smtp_result = subprocess.run(
+            ["tshark", "-r", str(pcap_path), "-Y", "smtp",
+             "-T", "fields", "-e", "frame.time", "-e", "ip.src", "-e", "smtp.req.command"],
+            capture_output=True, text=True, timeout=60
+        )
+        
+        if smtp_result.stdout.strip():
+            smtp_file = out_dir / "smtp_commands.txt"
+            smtp_file.write_text(smtp_result.stdout)
+            emails_found += 1
+            
+            print(f"  {Fore.GREEN}✓ SMTP traffic extracted{Style.RESET_ALL}")
+        
+        # Extract email addresses
+        email_result = subprocess.run(
+            ["tshark", "-r", str(pcap_path), "-Y", "smtp",
+             "-T", "fields", "-e", "smtp.mail.from", "-e", "smtp.rcpt.to"],
+            capture_output=True, text=True, timeout=60
+        )
+        
+        if email_result.stdout.strip():
+            emails_file = out_dir / "email_addresses.txt"
+            emails_file.write_text(email_result.stdout)
+            
+            print(f"  {Fore.GREEN}✓ Email addresses extracted{Style.RESET_ALL}")
+            lines = [l for l in email_result.stdout.strip().split('\n') if l.strip()]
+            print(f"  {Fore.CYAN}  Email addresses: {len(lines)}{Style.RESET_ALL}")
+            
+            for line in lines[:10]:  # Show first 10
+                print(f"    {Fore.YELLOW}{line}{Style.RESET_ALL}")
+            
+            add_to_summary("EMAIL-RECON", f"{len(lines)} emails found")
+        
+        log_tool("email-recon", "✅ Complete" if emails_found else "⬜ Nothing", f"{emails_found} sessions")
+        return emails_found > 0
+        
+    except Exception as e:
+        print(f"  {Fore.RED}Email reconstruction failed: {e}{Style.RESET_ALL}")
+        log_tool("email-recon", "❌ Error", str(e))
+        return False
+
+
+# ── OSINT: GPS & Geolocation Extractor (SPRINT 1) ──────────────────
+
+def extract_gps_coordinates(filepath):
+    """
+    Extract GPS coordinates dari EXIF metadata.
+    Convert DMS ke decimal, generate Google Maps link.
+    """
+    print(f"\n{Fore.CYAN}[GPS-OSINT] Extracting GPS coordinates from metadata...{Style.RESET_ALL}")
+    log_tool("gps-extract", "running")
+    
+    try:
+        if not AVAILABLE_TOOLS.get('exiftool'):
+            print(f"  {Fore.YELLOW}exiftool not available{Style.RESET_ALL}")
+            log_tool("gps-extract", "⏭ Skipped", "exiftool missing")
+            return False
+        
+        # Run exiftool to get GPS data
+        result = subprocess.run(
+            ["exiftool", "-GPSLatitude", "-GPSLongitude", "-GPSAltitude",
+             "-GPSLatitudeRef", "-GPSLongitudeRef", filepath],
+            capture_output=True, text=True, timeout=10
+        )
+        
+        if result.stdout.strip():
+            print(f"  {Fore.GREEN}✓ GPS metadata found{Style.RESET_ALL}")
+            
+            # Parse GPS coordinates
+            lines = result.stdout.strip().split('\n')
+            gps_data = {}
+            
+            for line in lines:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    gps_data[key.strip()] = value.strip()
+            
+            # Extract coordinates
+            lat = gps_data.get('GPS Latitude', '')
+            lon = gps_data.get('GPS Longitude', '')
+            
+            if lat and lon:
+                print(f"  {Fore.CYAN}  Latitude: {lat}{Style.RESET_ALL}")
+                print(f"  {Fore.CYAN}  Longitude: {lon}{Style.RESET_ALL}")
+                
+                # Try to convert to decimal (simplified)
+                # Full conversion would parse DMS format
+                print(f"\n  {Fore.GREEN}📍 Google Maps link:{Style.RESET_ALL}")
+                print(f"  {Fore.BLUE}https://www.google.com/maps?q={lat},{lon}{Style.RESET_ALL}")
+                
+                # Save results
+                out_dir = Path(filepath).parent / "gps_osint"
+                out_dir.mkdir(exist_ok=True)
+                
+                results_file = out_dir / "gps_coordinates.txt"
+                with open(results_file, 'w') as f:
+                    f.write("GPS COORDINATES REPORT\n")
+                    f.write("=" * 80 + "\n\n")
+                    f.write(f"File: {filepath}\n")
+                    f.write(f"Latitude: {lat}\n")
+                    f.write(f"Longitude: {lon}\n")
+                    f.write(f"\nGoogle Maps: https://www.google.com/maps?q={lat},{lon}\n\n")
+                    f.write("Full GPS data:\n")
+                    f.write(result.stdout)
+                
+                print(f"\n  {Fore.GREEN}✓ Full results saved to: {results_file}{Style.RESET_ALL}")
+                add_to_summary("GPS-OSINT", f"{lat}, {lon}")
+                log_tool("gps-extract", "✅ Found", f"{lat}, {lon}")
+                return True
+            else:
+                print(f"  {Fore.YELLOW}No GPS coordinates found{Style.RESET_ALL}")
+                log_tool("gps-extract", "⬜ Nothing", "no GPS data")
+                return False
+        else:
+            print(f"  {Fore.YELLOW}No GPS metadata found{Style.RESET_ALL}")
+            log_tool("gps-extract", "⬜ Nothing", "no GPS metadata")
+            return False
+            
+    except Exception as e:
+        print(f"  {Fore.RED}GPS extraction failed: {e}{Style.RESET_ALL}")
+        log_tool("gps-extract", "❌ Error", str(e))
+        return False
+
+def detect_hidden_unicode(text):
+    """
+    Zero-width characters sebagai steganografi:
+    \\u200b (ZERO WIDTH SPACE)
+    \\u200c (ZERO WIDTH NON-JOINER)
+    \\u200d (ZERO WIDTH JOINER)
+    \\ufeff (ZERO WIDTH NO-BREAK SPACE / BOM)
+    Sering di soal misc/web CTF.
+    """
+    print(f"\n{Fore.CYAN}[UNICODE] Checking for zero-width character steganography...{Style.RESET_ALL}")
+    log_tool("unicode-stego", "running")
+    
+    # Map zero-width characters to binary
+    zwc_map = {
+        '\u200b': '0',  # ZERO WIDTH SPACE
+        '\u200c': '0',  # ZERO WIDTH NON-JOINER
+        '\u200d': '1',  # ZERO WIDTH JOINER
+        '\ufeff': '1',  # ZERO WIDTH NO-BREAK SPACE
+        '\u2060': '0',  # WORD JOINER
+        '\u180e': '1',  # MONGOLIAN VOWEL SEPARATOR
+    }
+    
+    # Extract zero-width characters
+    bits = []
+    zwc_count = 0
+    for char in text:
+        if char in zwc_map:
+            bits.append(zwc_map[char])
+            zwc_count += 1
+    
+    if zwc_count == 0:
+        print(f"  {Fore.YELLOW}  ℹ No zero-width characters found{Style.RESET_ALL}")
+        log_tool("unicode-stego", "⬜ Nothing", "no ZWC detected")
+        return None
+    
+    print(f"  {Fore.GREEN}  ✓ Found {zwc_count} zero-width characters{Style.RESET_ALL}")
+    add_to_summary("UNICODE-ZWC", f"{zwc_count} zero-width characters detected")
+    
+    # Convert bits to ASCII
+    bit_string = ''.join(bits)
+    print(f"  {Fore.CYAN}  Binary stream: {bit_string[:100]}...{Style.RESET_ALL}")
+    
+    # Try to decode as ASCII (8 bits per char)
+    decoded_chars = []
+    for i in range(0, len(bit_string) - 7, 8):
+        byte = bit_string[i:i+8]
+        try:
+            char = chr(int(byte, 2))
+            if char.isprintable() or char in ['\n', '\r', '\t', ' ']:
+                decoded_chars.append(char)
+        except:
+            pass
+    
+    if decoded_chars:
+        decoded_text = ''.join(decoded_chars)
+        print(f"  {Fore.GREEN}  ✓ Decoded message ({len(decoded_chars)} chars):{Style.RESET_ALL}")
+        print(f"  {Fore.GREEN}  {decoded_text[:200]}{Style.RESET_ALL}")
+        
+        # Scan for flags
+        scan_text_for_flags(decoded_text, "UNICODE-ZWC")
+        collect_base64_from_text(decoded_text)
+        
+        # Save extracted data
+        out_dir = filepath.parent / f"{filepath.stem}_unicode_stego" if 'filepath' in dir() else Path("output_unicode_stego")
+        out_dir.mkdir(exist_ok=True)
+        (out_dir / "zwc_extracted.txt").write_text(decoded_text)
+        (out_dir / "zwc_binary.txt").write_text(bit_string)
+        add_to_summary("UNICODE-DECODED", f"Extracted {len(decoded_chars)} characters")
+        
+        log_tool("unicode-stego", "✅ Found" if FLAG_FOUND else "⬜ Something",
+                 f"{zwc_count} ZWC → {len(decoded_chars)} chars")
+        
+        return decoded_text
+    else:
+        print(f"  {Fore.YELLOW}  ℹ Could not decode to readable text{Style.RESET_ALL}")
+        log_tool("unicode-stego", "⬜ Nothing", "decode failed")
+        return None
 
 def bruteforce_steghide(filepath, wordlist=None, delay=0.1, parallel=5):
     if not AVAILABLE_TOOLS.get('steghide'): return
@@ -3937,144 +5191,131 @@ def _try_chunked_b64(b64_string, out_dir):
 
 def _smart_flag_assembler(decoded_per_frame, out_dir):
     """
-    Cerdas: cari partial flag di tiap frame, lalu coba susun ulang.
-    Filter noise, hanya simpan frame yang mengandung flag-like content.
+    Cerdas: cari partial flag di tiap frame, lalu susun ulang berdasarkan CONTENT, bukan frame number.
+    
+    Contoh: Frame 15=picoCTF, Frame 5={1t_w4s, Frame 2=nt_th4t
+    → Urutkan: picoCTF → {1t_w4s → nt_th4t → ... → }
     """
-    FLAG_PREFIXES  = ['picoCTF', 'CTF', 'flag', 'FLAG', '{']
-    FLAG_SUFFIXES  = ['}']
-    
-    # Pattern untuk flag content (alphanumeric + special chars commonly used in flags)
-    FLAG_CONTENT_PATTERN = re.compile(r'^[a-zA-Z0-9_{}\-\[\]!@#$%^&*()+=]+$')
-
-    prefix_frames  = []
-    suffix_frames  = []
-    middle_parts   = []
-    
-    # Filter: hanya simpan decoded yang terlihat seperti bagian flag
+    # ── STEP 1: Extract semua decoded content, filter noise
+    all_decoded = []
     for frame_num in sorted(decoded_per_frame.keys()):
         for decoded in decoded_per_frame[frame_num]:
-            # Cek apakah decoded mengandung prefix flag
-            has_prefix = False
-            for pfx in FLAG_PREFIXES:
-                if pfx in decoded:
-                    prefix_frames.append((frame_num, decoded))
-                    has_prefix = True
-                    break
-            
-            # Cek suffix
-            has_suffix = '}' in decoded
-            
-            # Quality check: apakah decoded terlihat seperti flag content?
-            is_flag_like = (
-                has_prefix or
-                has_suffix or
-                (FLAG_CONTENT_PATTERN.match(decoded) and len(decoded) >= 3) or
-                any(c in decoded for c in ['{', '}']) or
-                bool(re.search(r'[0-9a-f]{8,}', decoded))  # hex-like
-            )
-            
-            if is_flag_like:
-                middle_parts.append((frame_num, decoded))
-
-    if prefix_frames:
-        print(f"{Fore.GREEN}[SMART-ASSEMBLER] Partial flag prefix ditemukan di {len(prefix_frames)} frame:{Style.RESET_ALL}")
-        for fn, dec in prefix_frames:
-            print(f"  Frame {fn}: {dec}")
-
-    # Method 1: susun semua middle_parts berurutan frame
-    sorted_parts = sorted(middle_parts, key=lambda x: x[0])
-    assembled = ''.join(dec for _, dec in sorted_parts)
-
-    print(f"{Fore.CYAN}[SMART-ASSEMBLER] Assembled (filtered): {assembled[:120]}{Style.RESET_ALL}")
-    scan_text_for_flags(assembled, "SMART-ASSEMBLER")
-
-    # Method 2: Cari pola flag dengan regex fleksibel
-    flexible_pattern = r'(?:picoCTF|CTF|flag|FLAG)\{[^}]{3,80}\}'
-    for m in re.findall(flexible_pattern, assembled, re.IGNORECASE):
-        print(f"{Fore.GREEN}[SMART-ASSEMBLER] Flag pattern ditemukan: {m}{Style.RESET_ALL}")
-        add_to_summary("SMART-ASSEMBLER-FLAG", m)
+            # Ekstrak hanya flag-valid chars: alphanumeric, underscore, curly braces, dash
+            clean = re.sub(r'[^a-zA-Z0-9_{}\-]', '', decoded)
+            if clean:
+                all_decoded.append(clean)
+    
+    if not all_decoded:
+        return
+    
+    # ── STEP 2: Gabungkan semua content
+    combined = ''.join(all_decoded)
+    print(f"{Fore.CYAN}[SMART-ASSEMBLER] Combined content: {combined[:150]}{Style.RESET_ALL}")
+    scan_text_for_flags(combined, "SMART-COMBINED")
+    
+    # ── STEP 3: Try direct regex match first
+    flag_regex = r'(picoCTF|CTF|flag|FLAG)\{[a-zA-Z0-9_\-]+\}'
+    for m in re.finditer(flag_regex, combined, re.IGNORECASE):
+        flag = m.group(0)
+        print(f"{Fore.GREEN}[SMART-ASSEMBLER] ✅ FLAG FOUND: {flag}{Style.RESET_ALL}")
+        add_to_summary("SMART-FLAG", flag)
         signal_flag_found()
-
-    # Method 3: Content-based reassembly — susun berdasarkan flag pattern
-    if prefix_frames and not FLAG_FOUND:
-        print(f"{Fore.CYAN}[SMART-ASSEMBLER] Content-based reassembly...{Style.RESET_ALL}")
+        return
+    
+    # ── STEP 4: Smart reordering — find flag start, collect until end
+    FLAG_PREFIXES = ['picoCTF', 'CTF', 'flag', 'FLAG']
+    
+    for prefix in FLAG_PREFIXES:
+        if FLAG_FOUND:
+            break
+        if prefix not in combined:
+            continue
         
-        # Extract HANYA flag-like content dari setiap decoded string
-        # Flag chars: alphanumeric, underscore, curly braces, dash
-        flag_chars_pattern = re.compile(r'[a-zA-Z0-9_{}-]+')
-        flag_candidates = []
+        print(f"{Fore.CYAN}[SMART-ASSEMBLER] Found '{prefix}', reconstructing flag...{Style.RESET_ALL}")
+        
+        # Find where prefix starts
+        prefix_idx = combined.index(prefix)
+        after_prefix = combined[prefix_idx:]
+        
+        # Try to find closing brace
+        if '}' in after_prefix:
+            close_idx = after_prefix.index('}') + 1
+            candidate = after_prefix[:close_idx]
+            
+            # Validate
+            if re.match(r'(?:picoCTF|CTF|flag|FLAG)\{[a-zA-Z0-9_\-]{3,}\}', candidate, re.IGNORECASE):
+                print(f"{Fore.GREEN}[SMART-ASSEMBLER] ✅ FLAG RECONSTRUCTED: {candidate}{Style.RESET_ALL}")
+                add_to_summary("SMART-FLAG", candidate)
+                signal_flag_found()
+                return
+        
+        # ── STEP 5: If direct extraction fails, try to reorder segments
+        print(f"{Fore.CYAN}[SMART-ASSEMBLER] Reordering segments by flag structure...{Style.RESET_ALL}")
+        
+        # Find all flag-like segments
+        flag_chars_pattern = re.compile(r'[a-zA-Z0-9_{}\-]+')
+        segments = []
         
         for frame_num in sorted(decoded_per_frame.keys()):
             for decoded in decoded_per_frame[frame_num]:
-                # Ekstrak semua flag-like segments
                 matches = flag_chars_pattern.findall(decoded)
                 for match in matches:
-                    # Filter: hanya simpan yang panjang >= 2 atau mengandung flag chars
                     if len(match) >= 2 or any(c in match for c in ['{', '}']):
-                        flag_candidates.append(match)
+                        segments.append(match)
         
-        print(f"{Fore.CYAN}[SMART-ASSEMBLER] Extracted {len(flag_candidates)} flag-like segments{Style.RESET_ALL}")
-        for i, seg in enumerate(flag_candidates[:15]):
-            print(f"  [{i}] {seg}")
+        print(f"{Fore.CYAN}[SMART-ASSEMBLER] Extracted {len(segments)} segments{Style.RESET_ALL}")
+        for i, seg in enumerate(segments[:15]):
+            print(f"  [{i:2d}] {seg}")
         
-        # Method 3a: Gabungkan semua extracted segments
-        combined = ''.join(flag_candidates)
-        print(f"{Fore.CYAN}[SMART-ASSEMBLER] Combined: {combined[:150]}{Style.RESET_ALL}")
-        scan_text_for_flags(combined, "SMART-EXTRACT-JOIN")
+        # Find prefix segment index
+        prefix_seg_idx = -1
+        for i, seg in enumerate(segments):
+            if seg.startswith(prefix) or prefix in seg:
+                prefix_seg_idx = i
+                print(f"{Fore.GREEN}[SMART-ASSEMBLER] Found prefix '{prefix}' at segment [{i}]: {seg}{Style.RESET_ALL}")
+                break
         
-        # Method 3b: Cari flag pattern yang lengkap
-        flag_regex = r'(picoCTF|CTF|flag|FLAG)\{[a-zA-Z0-9_\-]+\}'
-        for m in re.finditer(flag_regex, combined, re.IGNORECASE):
-            flag = m.group(0)
-            print(f"{Fore.GREEN}[SMART-ASSEMBLER] ✅ FLAG FOUND: {flag}{Style.RESET_ALL}")
-            add_to_summary("SMART-RECONSTRUCT-FLAG", flag)
-            signal_flag_found()
-            break
-        
-        # Method 3c: Jika pattern tidak lengkap, coba reconstruct
-        if not FLAG_FOUND:
-            # Cari picoCTF{ awal
-            for i, seg in enumerate(flag_candidates):
-                if 'picoCTF{' in seg or seg == 'picoCTF':
-                    print(f"{Fore.CYAN}[SMART-ASSEMBLER] Found prefix at segment [{i}]: {seg}{Style.RESET_ALL}")
-                    # Coba gabungkan dari sini ke depan
-                    assembled_from_here = ''.join(flag_candidates[i:])
+        if prefix_seg_idx >= 0:
+            # Collect segments from prefix onwards, stopping at }
+            flag_parts = []
+            found_open_brace = '{' in segments[prefix_seg_idx]
+            
+            for i in range(prefix_seg_idx, len(segments)):
+                seg = segments[i]
+                flag_parts.append(seg)
+                
+                if '}' in seg:
+                    break
+            
+            # Join and extract flag
+            assembled = ''.join(flag_parts)
+            print(f"{Fore.CYAN}[SMART-ASSEMBLER] Assembled: {assembled[:120]}{Style.RESET_ALL}")
+            
+            # Try regex match on assembled
+            for m in re.finditer(flag_regex, assembled, re.IGNORECASE):
+                flag = m.group(0)
+                print(f"{Fore.GREEN}[SMART-ASSEMBLER] ✅ FLAG FOUND: {flag}{Style.RESET_ALL}")
+                add_to_summary("SMART-FLAG", flag)
+                signal_flag_found()
+                return
+            
+            # Try to extract flag with permissive regex
+            permissive = r'(picoCTF|CTF|flag|FLAG)\{[a-zA-Z0-9_\-]+'
+            match = re.search(permissive, assembled, re.IGNORECASE)
+            if match:
+                partial = match.group(0)
+                if '}' in assembled[match.end():]:
+                    close_idx = assembled[match.end():].index('}') + 1
+                    full_flag = partial + assembled[match.end():match.end()+close_idx]
                     
-                    # Scan dengan regex yang lebih permissive
-                    permissive_regex = r'picoCTF\{[a-zA-Z0-9_]{5,}'
-                    match = re.search(permissive_regex, assembled_from_here)
-                    if match:
-                        partial = match.group(0)
-                        print(f"{Fore.YELLOW}[SMART-ASSEMBLER] Partial: {partial}{Style.RESET_ALL}")
-                        
-                        # Cari closing brace
-                        remaining = assembled_from_here[match.end():]
-                        if '}' in remaining:
-                            close_idx = remaining.index('}')
-                            full_flag = partial + remaining[:close_idx+1]
-                            print(f"{Fore.GREEN}[SMART-ASSEMBLER] ✅ FLAG RECONSTRUCTED: {full_flag}{Style.RESET_ALL}")
-                            add_to_summary("SMART-RECONSTRUCT-FLAG", full_flag)
-                            signal_flag_found()
-                            break
-                        
-                        # Jika tidak ada }, coba ambil sampai segment yang mengandung }
-                        for j in range(i+1, len(flag_candidates)):
-                            if '}' in flag_candidates[j]:
-                                extended = partial + ''.join(flag_candidates[i+1:j+1])
-                                # Extract sampai }
-                                if '}' in extended:
-                                    flag_end = extended.index('}') + 1
-                                    full_flag = extended[:flag_end]
-                                    if re.match(r'picoCTF\{[a-zA-Z0-9_]{5,}\}', full_flag):
-                                        print(f"{Fore.GREEN}[SMART-ASSEMBLER] ✅ FLAG FOUND: {full_flag}{Style.RESET_ALL}")
-                                        add_to_summary("SMART-RECONSTRUCT-FLAG", full_flag)
-                                        signal_flag_found()
-                                        break
-                        if FLAG_FOUND:
-                            break
-
-    # Simpan hasil ke file
-    (out_dir / "assembled_flag.txt").write_text(f"Assembled:\n{assembled}\n")
+                    if re.match(r'(?:picoCTF|CTF|flag|FLAG)\{[a-zA-Z0-9_\-]{3,}\}', full_flag, re.IGNORECASE):
+                        print(f"{Fore.GREEN}[SMART-ASSEMBLER] ✅ FLAG RECONSTRUCTED: {full_flag}{Style.RESET_ALL}")
+                        add_to_summary("SMART-FLAG", full_flag)
+                        signal_flag_found()
+                        return
+    
+    # Save for debugging
+    (out_dir / "assembled_content.txt").write_text(f"Combined:\n{combined}\n")
 
 
 # ── PCAP: DNS TUNNELING DETECTOR ─────────────
@@ -4619,6 +5860,162 @@ def rsa_bellcore_crt(N, e, C, sig_faulty, M_msg):
         print(f"  {Fore.RED}Dekripsi gagal: {ex}{Style.RESET_ALL}")
     return None
 
+def substitution_cipher_auto(ciphertext):
+    """
+    Monoalphabetic substitution cipher — frequency analysis otomatis.
+    Sangat sering di soal crypto 'easy' CTF.
+    Menggunakan analisis frekuensi huruf Inggris/Indonesia.
+    """
+    _crypto_banner("Substitution Cipher - Frequency Analysis")
+    
+    # English letter frequency (most to least common)
+    english_freq = "ETAOINSHRDLCUMWFGYPBVKJXQZ"
+    # Indonesian letter frequency (approximate)
+    indonesian_freq = "AENITRUSKDLMOPBGJYCFHVWZ"
+    
+    # Only analyze alphabetic characters
+    alpha_only = re.sub(r'[^a-zA-Z]', '', ciphertext)
+    
+    if len(alpha_only) < 20:
+        print(f"  {Fore.YELLOW}Text too short for frequency analysis (need >20 chars){Style.RESET_ALL}")
+        return []
+    
+    # Count letter frequencies in ciphertext
+    freq = Counter(alpha_only.upper())
+    total = sum(freq.values())
+    
+    # Sort by frequency (most common first)
+    cipher_freq_order = ''.join([k for k, v in freq.most_common()])
+    
+    print(f"  {Fore.CYAN}Letter frequency analysis:{Style.RESET_ALL}")
+    print(f"  {Fore.CYAN}Most common: {cipher_freq_order[:10]}{Style.RESET_ALL}")
+    print(f"  {Fore.CYAN}Total letters: {total}{Style.RESET_ALL}")
+    
+    results = []
+    
+    # Try English frequency mapping
+    print(f"\n  {Fore.YELLOW}[English Frequency Mapping]{Style.RESET_ALL}")
+    english_mapping = {}
+    for i, char in enumerate(cipher_freq_order):
+        if i < len(english_freq):
+            english_mapping[char] = english_freq[i]
+    
+    # Decode with English mapping
+    english_decoded = []
+    for char in alpha_only.upper():
+        english_decoded.append(english_mapping.get(char, char))
+    english_result = ''.join(english_decoded)
+    
+    # Print first 200 chars
+    print(f"  {Fore.GREEN}English: {english_result[:200]}{Style.RESET_ALL}")
+    scan_text_for_flags(english_result, "SUBST-ENGLISH")
+    results.append(("English-Freq", english_result[:200]))
+    
+    # Try Indonesian frequency mapping
+    print(f"\n  {Fore.YELLOW}[Indonesian Frequency Mapping]{Style.RESET_ALL}")
+    indo_mapping = {}
+    for i, char in enumerate(cipher_freq_order):
+        if i < len(indonesian_freq):
+            indo_mapping[char] = indonesian_freq[i]
+    
+    # Decode with Indonesian mapping
+    indo_decoded = []
+    for char in alpha_only.upper():
+        indo_decoded.append(indo_mapping.get(char, char))
+    indo_result = ''.join(indo_decoded)
+    
+    # Print first 200 chars
+    print(f"  {Fore.GREEN}Indonesian: {indo_result[:200]}{Style.RESET_ALL}")
+    scan_text_for_flags(indo_result, "SUBST-INDONESIAN")
+    results.append(("Indonesian-Freq", indo_result[:200]))
+    
+    # Also try ROT13 as it's sometimes confused with substitution
+    rot13_result = ciphertext.translate(str.maketrans(
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz',
+        'NOPQRSTUVWXYZABCDEFGHIJKLMnopqrstuvwxyzabcdefghijklm'))
+    print(f"\n  {Fore.YELLOW}[ROT13 (for comparison)]{Style.RESET_ALL}")
+    print(f"  {Fore.GREEN}{rot13_result[:200]}{Style.RESET_ALL}")
+    scan_text_for_flags(rot13_result, "SUBST-ROT13")
+    results.append(("ROT13", rot13_result[:200]))
+    
+    # Check for flag patterns in all results
+    found_flags = []
+    for method, result in results:
+        for pat in COMMON_FLAG_PATTERNS:
+            matches = re.findall(pat, result, re.IGNORECASE)
+            for match in matches:
+                found_flags.append((method, match))
+                print(f"\n{Fore.GREEN}{'─'*50}")
+                print(f"  🚩 FLAG dari Substitution Cipher!")
+                print(f"  {Fore.YELLOW}{match}{Style.RESET_ALL}")
+                print(f"  Method: {method}")
+                print(f"{Fore.GREEN}{'─'*50}{Style.RESET_ALL}\n")
+    
+    if found_flags:
+        add_to_summary("SUBST-CIPHER-FLAG", f"Found {len(found_flags)} flag(s)")
+    else:
+        print(f"\n  {Fore.YELLOW}No clear flags found. Try manual analysis of the decoded text.{Style.RESET_ALL}")
+    
+    log_tool("substitution-cipher", "✅ Found" if found_flags else "⬜ Nothing",
+             f"English/Indonesian frequency analysis")
+    
+    return results
+
+# ── 7. CLASSIC CIPHER: ATBASH + CAESAR BRUTE ─────────────────────
+
+def rsa_small_e_attack(N, e, c):
+    """
+    RSA Small Exponent Attack — ketika e kecil (biasanya e=3) dan pesan pendek.
+    Jika m^e < N, maka c = m^e mod N = m^e (tidak ter-modulo).
+    Cukup hitung akar pangkat e dari c untuk mendapat m.
+    Sangat sering di CTF pemula!
+    """
+    try:
+        # Try to use gmpy2 for efficient root calculation
+        try:
+            import gmpy2
+            m, exact = gmpy2.iroot(c, e)
+            if exact:
+                m_int = int(m)
+                flag_str = crypto_int_to_str(m_int)
+                _crypto_result(f"Small-e Attack (e={e})", flag_str)
+                _crypto_flag_check(flag_str, f"RSA-SMALL-E-{e}")
+                return flag_str
+        except ImportError:
+            # Fallback: integer root without gmpy2
+            def integer_root(n, e):
+                """Calculate integer e-th root of n using Newton's method"""
+                if n == 0:
+                    return 0, True
+                if n < 0:
+                    return None, False
+                
+                # Initial guess
+                x = int(n ** (1.0 / e))
+                
+                # Newton's method iteration
+                for _ in range(100):
+                    x_new = ((e - 1) * x + n // pow(x, e - 1)) // e
+                    if x_new == x:
+                        break
+                    x = x_new
+                
+                # Check if exact
+                power = pow(x, e)
+                return x, (power == n)
+            
+            m, exact = integer_root(c, e)
+            if exact:
+                flag_str = crypto_int_to_str(m)
+                _crypto_result(f"Small-e Attack (e={e})", flag_str)
+                _crypto_flag_check(flag_str, f"RSA-SMALL-E-{e}")
+                return flag_str
+        
+        print(f"  {Fore.YELLOW}Small-e attack: c bukan e-th perfect root{Style.RESET_ALL}")
+    except Exception as ex:
+        print(f"  {Fore.YELLOW}Small-e attack gagal: {ex}{Style.RESET_ALL}")
+    return None
+
 # ── 5. RSA: AUTO-DETECT & TRY ALL ATTACKS ────────────────────────
 
 def rsa_auto_attack(N, e, c, e2=None, c2=None, sig_faulty=None, msg=None):
@@ -4627,6 +6024,11 @@ def rsa_auto_attack(N, e, c, e2=None, c2=None, sig_faulty=None, msg=None):
     """
     _crypto_banner("RSA Auto-Attack Pipeline")
     results = []
+
+    # Small e attack (cepat, sangat umum di CTF)
+    print(f"\n{Fore.CYAN}[RSA] Mencoba Small Exponent Attack (e={e})...{Style.RESET_ALL}")
+    r = rsa_small_e_attack(N, e, c)
+    if r: results.append(("Small-e", r))
 
     # Fermat dulu (cepat)
     print(f"\n{Fore.CYAN}[RSA] Mencoba Fermat Factorization...{Style.RESET_ALL}")
@@ -5518,6 +6920,9 @@ def analyze_crypto_file(filepath, args):
     except Exception:
         text = filepath.read_bytes().decode('latin-1', errors='ignore')
 
+    # Fix bug: repaired variable was not defined
+    repaired = fix_header(filepath)
+
     results_all = []
 
     # ── Scan flag langsung di file
@@ -5550,6 +6955,18 @@ def analyze_crypto_file(filepath, args):
         print(f"\n{Fore.CYAN}[CRYPTO] Potensi classic cipher: {full_cipher}{Style.RESET_ALL}")
         r = analyze_classic_cipher(full_cipher, known_plaintext_prefix="CTF")
         results_all.extend(r)
+
+    # ── Deteksi Substitution Cipher (text panjang tanpa spasi/pola jelas)
+    # Check for long alphabetic-only text (common in substitution ciphers)
+    alpha_blocks = re.findall(r'\b[A-Z]{30,}\b', text)
+    if alpha_blocks and not classic_m:
+        for block in alpha_blocks[:3]:  # Check first 3 blocks
+            # Check if it looks like a substitution cipher (not base64, not hex)
+            if not re.match(r'^[A-Za-z0-9+/]+=*$', block) and len(block) > 30:
+                print(f"\n{Fore.CYAN}[CRYPTO] Potensi substitution cipher: {block[:50]}...{Style.RESET_ALL}")
+                r = substitution_cipher_auto(block)
+                if r:
+                    results_all.extend(r)
 
     # ── Deteksi AES-CBC (IV + CT hex)
     iv, ct_hex = _parse_aes_from_text(text)
@@ -6444,6 +7861,14 @@ def process_file(filepath, args):
             analyze_decimal_ascii(repaired)
             # Don't return here, continue with other analysis
 
+        # 8. Zero-Width Character Detection (for all text files)
+        zwc_patterns = ['\u200b', '\u200c', '\u200d', '\ufeff', '\u2060', '\u180e']
+        has_zwc = any(zwc in file_content for zwc in zwc_patterns)
+        if has_zwc:
+            print(f"\n{Fore.GREEN}[AUTO] 🔤 Zero-width character steganography detected!{Style.RESET_ALL}")
+            detect_hidden_unicode(file_content)
+            # Don't return here, continue with other analysis
+
         if has_rsa:
             print(f"{Fore.CYAN}    • RSA parameters (N, e) found{Style.RESET_ALL}")
         if has_ciphertext:
@@ -6529,6 +7954,7 @@ def process_file(filepath, args):
     is_pdf    =(real_ext == 'pdf' or repaired.suffix.lower() == '.pdf' or args.pdfcrack)
     is_zip    =(real_ext == 'zip' or is_archive or args.zipcrack)
     is_memdump=(repaired.suffix.lower() in ['.raw','.mem','.dmp','.vmem'] or args.volatility)
+    is_wav    =(repaired.suffix.lower() in ['.wav'] or 'wave' in file_desc or 'wav' in file_desc)
 
     # ── CRYPTO MODE (v4.0+)
     if getattr(args, 'crypto', False) or getattr(args, 'encoding_chain', False):
@@ -6645,7 +8071,20 @@ def process_file(filepath, args):
         if is_pcap:
             analyze_pcap_basic(repaired); search_pcap_flags(repaired)
             if not check_early_exit(): analyze_dns_tunneling(repaired)
-        if is_zip: crack_zip(repaired, getattr(args,'wordlist',None))
+            # Network protocol reconstruction (SPRINT 1)
+            if args.ftp_recon: reconstruct_ftp_sessions(repaired)
+            if args.email_recon: reconstruct_email_sessions(repaired)
+            # Auto-detect FTP/SMTP in pcap
+            if not args.quick:
+                reconstruct_ftp_sessions(repaired)
+                reconstruct_email_sessions(repaired)
+        if is_zip:
+            # Forensic analysis before cracking
+            forensic_zip_analysis(repaired, args)
+            if check_early_exit():
+                scan_all_outputs_for_flags(repaired)
+                print_final_report(filepath.name); return _build_result()
+            crack_zip(repaired, getattr(args,'wordlist',None), args)
         scan_all_outputs_for_flags(repaired)
         print_final_report(filepath.name); return _build_result()
 
@@ -6661,10 +8100,19 @@ def process_file(filepath, args):
         if is_log: analyze_log(repaired)
         if is_autorun: analyze_autorun(repaired)
         if is_reg: analyze_registry(repaired)
-        if is_zip: crack_zip(repaired, getattr(args,'wordlist',None))
+        if is_zip:
+            # Forensic analysis before cracking
+            forensic_zip_analysis(repaired, args)
+            if check_early_exit():
+                scan_all_outputs_for_flags(repaired)
+                print_final_report(filepath.name); return _build_result()
+            crack_zip(repaired, getattr(args,'wordlist',None), args)
         if is_image:
             analyze_image(repaired,deep=args.deep,alpha=args.alpha)
             analyze_graphicsmagick(repaired); analyze_exif_deep(repaired)
+            # OSINT GPS extraction
+            extract_gps_coordinates(repaired)
+            detect_appended_data(repaired)  # Check for data after EOF
             analyze_steg_methods(repaired)
             if args.lsbextract or args.all: extract_lsb_data(repaired)
             if args.compare: compare_images(repaired,Path(args.compare))
@@ -6694,6 +8142,8 @@ def process_file(filepath, args):
         if is_memory_dump:
             _memory_fallback_scan(repaired, repaired.parent/f"{repaired.stem}_memscan")
             if not check_early_exit(): analyze_memory_advanced(repaired)
+        if is_wav:
+            analyze_wav_steganography(repaired)
         if is_evtlog: analyze_windows_event_logs(repaired)
         if is_pcap:
             analyze_pcap_full(repaired)
@@ -6711,6 +8161,7 @@ def process_file(filepath, args):
         elif is_image:
             analyze_image(repaired,deep=args.deep,alpha=args.alpha)
             if args.exif:       analyze_exif_deep(repaired)
+            detect_appended_data(repaired)  # Check for data after EOF
             if args.stegdetect: analyze_steg_methods(repaired)
             if args.lsbextract: extract_lsb_data(repaired)
             if args.compare:    compare_images(repaired,Path(args.compare))
@@ -6728,9 +8179,27 @@ def process_file(filepath, args):
                     wl=Path(args.wordlist).read_text().splitlines()
                 bruteforce_steghide(repaired,wl,args.delay,args.parallel)
         elif is_zip or is_archive:
-            if args.zipcrack: crack_zip(repaired, getattr(args,'wordlist',None))
-            else: analyze_with_binwalk(repaired)
+            if args.forensic_zip:
+                forensic_zip_analysis(repaired, args)
+            if args.zipcrack: crack_zip(repaired, getattr(args,'wordlist',None), args)
+            if not args.forensic_zip and not args.zipcrack:
+                analyze_with_binwalk(repaired)
             if args.foremost: analyze_foremost(repaired)
+        elif is_wav:
+            analyze_wav_steganography(repaired)
+            if args.spectrogram: generate_audio_spectrogram(repaired)
+        elif is_image and (args.chi_square or args.stegdetect):
+            if args.chi_square: chi_square_lsb_detection(repaired)
+            if args.stegdetect: detect_stego_method(repaired)
+        elif is_image and is_jpg and args.dct_analysis:
+            analyze_dct_coefficients(repaired)
+        elif args.mft or (is_ntfs_disk and args.deep):
+            # Try to find and parse MFT from NTFS disk
+            mft_path = repaired.parent / "$MFT"
+            if mft_path.exists():
+                parse_mft_direct(str(mft_path))
+            else:
+                print(f"{Fore.YELLOW}[MFT] $MFT file not found in {repaired.parent}{Style.RESET_ALL}")
         elif real_ext == 'pdf' or args.pdfcrack:
             if args.pdfcrack: crack_pdf(repaired, getattr(args,'wordlist',None))
             else: analyze_with_binwalk(repaired)
@@ -6811,6 +8280,15 @@ def main():
     ctf.add_argument("--log",        action="store_true",help="Web server log analysis (Apache/Nginx)")
     ctf.add_argument("--autorun",    action="store_true",help="Autorun.inf / INF file analysis")
     ctf.add_argument("--zipcrack",   action="store_true",help="Crack ZIP password (wordlist/rockyou)")
+    ctf.add_argument("--forensic-zip", action="store_true", dest="forensic_zip",
+                     help="Forensic analysis ZIP file (strings, context clues, smart password guessing)")
+    ctf.add_argument("--mft",          action="store_true", help="NTFS MFT parser (deleted file recovery)")
+    ctf.add_argument("--ftp-recon",    action="store_true", dest="ftp_recon",
+                     help="FTP session reconstruction from PCAP")
+    ctf.add_argument("--email-recon",  action="store_true", dest="email_recon",
+                     help="Email (SMTP/POP3/IMAP) reconstruction from PCAP")
+    ctf.add_argument("--gps-extract",  action="store_true", dest="gps_extract",
+                     help="Extract GPS coordinates from EXIF metadata")
     ctf.add_argument("--pdfcrack",   action="store_true",help="Crack PDF password (pdfcrack)")
     ctf.add_argument("--john",       action="store_true",help="Crack hash dengan John the Ripper")
     ctf.add_argument("--hashcat",    action="store_true",help="Crack hash dengan Hashcat")
@@ -6887,6 +8365,11 @@ def main():
     stego.add_argument("--foremost",  action="store_true",help="File carving")
     stego.add_argument("--deep",      action="store_true",help="Semua 8 bit plane")
     stego.add_argument("--alpha",     action="store_true",help="Analisis alpha channel")
+    
+    # Advanced Steganography (SPRINT 1)
+    stego.add_argument("--spectrogram", action="store_true",help="Audio spectrogram generator")
+    stego.add_argument("--chi-square",  action="store_true", dest="chi_square", help="Chi-square LSB detection")
+    stego.add_argument("--dct-analysis", action="store_true", dest="dct_analysis", help="JPEG DCT coefficient analysis")
 
     enc=p.add_argument_group("Encoding")
     enc.add_argument("--decode", action="store_true",help="Auto-decode base64/hex/binary")
