@@ -40,7 +40,7 @@ cat << 'BANNER'
   ██╔══██╗ ██╔══██║ ╚██╗ ██╔╝ ██╔══╝   ██║╚████║
   ██║  ██║ ██║  ██║  ╚████╔╝  ███████╗ ██║ ╚███║
   ╚═╝  ╚═╝ ╚═╝  ╚═╝   ╚═══╝   ╚══════╝ ╚═╝  ╚══╝
-           CTF Multi-Category Toolkit v5.0  — by Syaaddd
+           CTF Multi-Category Toolkit v6.0.1  — by Syaaddd
 BANNER
 }
 
@@ -325,6 +325,18 @@ install_global() {
     local src="${BASH_SOURCE[0]}"
     local dest="$GLOBAL_BIN"
 
+    # Check if already installed and backup
+    if [[ -f "$dest" ]]; then
+        info "RAVEN sudah terinstall di $dest"
+        info "Membuat backup versi lama..."
+        local backup="${dest}.backup.$(date +%Y%m%d_%H%M%S)"
+        if cp "$dest" "$backup" 2>/dev/null || sudo cp "$dest" "$backup" 2>/dev/null; then
+            success "Backup dibuat: $backup"
+        else
+            warn "Gagal membuat backup, melanjutkan tanpa backup..."
+        fi
+    fi
+
     if [[ ! -w "$(dirname $dest)" ]]; then
         info "Butuh sudo untuk install ke $dest"
         sudo cp "$src" "$dest"
@@ -336,6 +348,14 @@ install_global() {
 
     # Buat direktori home
     mkdir -p "$RAVEN_HOME"
+    
+    # Copy engine files (untuk --learn dan fitur lainnya)
+    if [[ -d "$(dirname "$0")/engine" ]]; then
+        info "Copying engine modules to $RAVEN_HOME/engine..."
+        mkdir -p "$RAVEN_HOME/engine"
+        cp -f "$(dirname "$0")/engine/"*.py "$RAVEN_HOME/engine/" 2>/dev/null || true
+        success "Engine modules copied: $(ls "$RAVEN_HOME/engine/"*.py 2>/dev/null | wc -l) files"
+    fi
 
     # Pre-setup venv sekarang juga
     local py
@@ -343,14 +363,21 @@ install_global() {
     setup_venv "$py"
     write_python_engine
 
-    success "RAVEN terinstall secara global!"
+    success "RAVEN v6.0.1 berhasil terinstall secara global!"
     echo ""
     echo -e "  ${GREEN}Sekarang kamu bisa jalankan dari mana saja:${NC}"
     echo -e "  ${BOLD}  raven image.png --auto${NC}"
     echo -e "  ${BOLD}  raven access.log --log${NC}"
     echo -e "  ${BOLD}  raven --folder ./challenge/${NC}"
+    echo -e "  ${BOLD}  raven --learn              # CTF Learning Guide!${NC}"
     echo ""
     echo -e "  ${CYAN}Data tersimpan di: $RAVEN_HOME${NC}"
+    echo ""
+    echo -e "  ${YELLOW}💡 New in v6.0.1:${NC}"
+    echo -e "  • Detailed analysis output (no more missing output!)"
+    echo -e "  • CTF Learning Guide (--learn)"
+    echo -e "  • Better error handling & logging"
+    echo -e "  • All tools now show comprehensive reports${NC}"
     exit 0
 }
 
@@ -710,7 +737,7 @@ def decode_base64(candidate):
         s=decoded.decode('utf-8',errors='ignore')
         if all(c.isprintable() or c.isspace() for c in s) and len(s.strip())>4:
             return s
-    except: pass
+    except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
     return None
 
 def detect_file_extension(header):
@@ -750,7 +777,7 @@ def detect_scattered_flag(raw_data):
         for pat in COMMON_FLAG_PATTERNS:
             for m in re.findall(pat,cleaned,re.IGNORECASE):
                 add_to_summary("SCATTERED-FLAG",m)
-    except: pass
+    except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
 
 def scan_text_for_flags(text, source=""):
     """Scan teks apapun untuk flag patterns — dedup ketat"""
@@ -817,13 +844,13 @@ def deobfuscate_string(s):
         clean_hex = re.sub(r'[^0-9a-fA-F]','',s)
         if len(clean_hex)>=8 and len(clean_hex)%2==0:
             results['hex'] = bytes.fromhex(clean_hex).decode('utf-8',errors='ignore')
-    except: pass
+    except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
 
     # Reverse + Base64
     try:
         rb64 = decode_base64(s[::-1])
         if rb64: results['reverse_then_b64'] = rb64
-    except: pass
+    except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
 
     return results
 
@@ -905,8 +932,7 @@ def analyze_registry(filepath):
                     decoded = decoded_bytes.decode('utf-8', errors='ignore').strip('\x00')
                     if decoded.strip() and all(32 <= ord(c) <= 126 or c in '\n\r\t' for c in decoded if c.isprintable() or c in '\n\r\t'):
                         encoding_used = "ASCII/UTF-8"
-                except:
-                    pass
+                except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
                 
                 # Jika UTF-8 gagal atau kosong, coba UTF-16LE
                 if not decoded.strip():
@@ -914,8 +940,7 @@ def analyze_registry(filepath):
                         decoded = decoded_bytes.decode('utf-16-le', errors='ignore').strip('\x00')
                         if decoded.strip():
                             encoding_used = "UTF-16LE"
-                    except:
-                        pass
+                    except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
                 
                 # Jika masih kosong, coba UTF-16BE
                 if not decoded.strip():
@@ -923,8 +948,7 @@ def analyze_registry(filepath):
                         decoded = decoded_bytes.decode('utf-16-be', errors='ignore').strip('\x00')
                         if decoded.strip():
                             encoding_used = "UTF-16BE"
-                    except:
-                        pass
+                    except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
                 
                 # Jika masih kosong, coba latin-1 (byte-per-byte)
                 if not decoded.strip():
@@ -932,8 +956,7 @@ def analyze_registry(filepath):
                         decoded = decoded_bytes.decode('latin-1', errors='ignore')
                         if decoded.strip():
                             encoding_used = "Latin-1"
-                    except:
-                        pass
+                    except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
                 
                 if decoded.strip():
                     print(f"{Fore.CYAN}  [{name}] hex → \"{decoded}\" ({encoding_used}){Style.RESET_ALL}")
@@ -1152,8 +1175,7 @@ def analyze_binary_digits(filepath, forced_width=None):
                         strings_out = subprocess.getoutput(f"strings '{img_path}'")
                         if strings_out:
                             scan_text_for_flags(strings_out, f"BINARY-IMG-{width}x{height}")
-                    except:
-                        pass
+                    except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
 
     if rendered_images:
         print(f"\n{Fore.GREEN}[BINARY-IMG] {len(rendered_images)} image(s) rendered{Style.RESET_ALL}")
@@ -1241,8 +1263,7 @@ def render_image_from_bytes(raw_bytes, source_filepath, label=""):
                     sr = subprocess.getoutput(f"strings '{normalized}'")
                     if sr:
                         scan_text_for_flags(sr, "BIN-RENDER-STRINGS")
-                except:
-                    pass
+                except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
 
                 log_tool("binary-render", "✅ Found", f"Rendered {fmt} image: {normalized.name}")
                 return normalized
@@ -1286,8 +1307,7 @@ def render_image_from_bytes(raw_bytes, source_filepath, label=""):
                                 sr = subprocess.getoutput(f"strings '{out_path}'")
                                 if sr:
                                     scan_text_for_flags(sr, f"BIN-RENDER-PIXEL-{width}x{height}")
-                            except:
-                                pass
+                            except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
                         except Exception as e:
                             print(f"{Fore.RED}[BIN-RENDER] Pixel render failed {width}x{height}: {e}{Style.RESET_ALL}")
             
@@ -1355,8 +1375,7 @@ def analyze_morse(filepath):
                 print(f"{Fore.GREEN}[MORSE] {morse_text[:60]} → {result}{Style.RESET_ALL}")
                 scan_text_for_flags(result, "MORSE")
                 found_any = True
-        except:
-            pass
+        except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
     
     if not found_any:
         print(f"{Fore.YELLOW}[MORSE] Tidak ada morse code ditemukan{Style.RESET_ALL}")
@@ -1404,8 +1423,7 @@ def analyze_decimal_ascii(filepath):
                 print(f"{Fore.GREEN}[DECIMAL] {match[:60]} → {result[:80]}{'...' if len(result) > 80 else ''}{Style.RESET_ALL}")
                 scan_text_for_flags(result, "DECIMAL")
                 found_any = True
-        except:
-            pass
+        except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
     
     if not found_any:
         print(f"{Fore.YELLOW}[DECIMAL] Tidak ada decimal ASCII ditemukan{Style.RESET_ALL}")
@@ -2189,7 +2207,7 @@ def _scan_extracted_dir(out_dir, source):
                     raw = f.read_bytes()
                     txt = raw.decode('latin-1', errors='ignore')
                     scan_text_for_flags(txt, source)
-                except: pass
+                except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
             # Juga jalankan strings
             sr = subprocess.getoutput(f"strings '{f}'")
             scan_text_for_flags(sr, f"{source}-STRINGS")
@@ -2487,7 +2505,7 @@ def _get_real_type(filepath):
         for sig_bytes, (ext, desc) in MAGIC_MAP.items():
             if header[:len(sig_bytes)] == sig_bytes:
                 return ext, desc
-    except: pass
+    except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
     return None, None
 
 def _analyze_single_magic(filepath):
@@ -2670,7 +2688,7 @@ def analyze_volatility(filepath, vol_args=None):
                             shell=True, capture_output=True, text=True, timeout=60)
                         if r.returncode == 0:
                             print(f"  Dump {addr}: OK")
-                    except: pass
+                    except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
 
             # Scan file yang sudah di-dump
             _scan_extracted_dir(dump_dir, "VOL-DUMP")
@@ -2745,7 +2763,7 @@ def analyze_extracted_file(filepath):
     try:
         result=subprocess.run(['strings',str(filepath)],capture_output=True,text=True)
         scan_text_for_flags(result.stdout, f"EXTRACTED-{filepath.name}")
-    except: pass
+    except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
 
 def auto_decode_and_extract(filepath):
     if check_early_exit(): return
@@ -2812,8 +2830,7 @@ def analyze_strings_and_flags(filepath, custom_format=None):
             print(f"{Fore.YELLOW}[STRINGS] ⏭ Skip large file: {filepath.name} ({size_mb:.1f}MB){Style.RESET_ALL}")
             log_tool("strings", "⏭ Skipped", f"file too large ({size_mb:.1f}MB)")
             return
-    except:
-        pass
+    except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
 
     log_tool("strings", "running")
     found_before = len(found_flags_set)
@@ -2977,8 +2994,7 @@ def analyze_with_binwalk(filepath):
                             size_mb = nested.stat().st_size / (1024*1024)
                             print(f"{Fore.YELLOW}[BINWALK] ⏭ Skip large: {nested.name} ({size_mb:.1f}MB){Style.RESET_ALL}")
                             continue
-                    except:
-                        pass
+                    except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
                     
                     analyze_strings_and_flags(nested)
                     if check_early_exit():
@@ -3330,8 +3346,7 @@ def detect_appended_data(filepath):
                     print(f"{Fore.CYAN}  [INFO] First 500 chars (text):{Style.RESET_ALL}")
                     print(f"  {text_sample[:200]}...")
                     scan_text_for_flags(text_sample, "APPENDED-TEXT")
-            except:
-                pass
+            except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
             
             log_tool("appended-data", "✅ Found", f"{len(appended_data)} bytes after {eof_type}")
         else:
@@ -4004,8 +4019,7 @@ def detect_hidden_unicode(text):
             char = chr(int(byte, 2))
             if char.isprintable() or char in ['\n', '\r', '\t', ' ']:
                 decoded_chars.append(char)
-        except:
-            pass
+        except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
     
     if decoded_chars:
         decoded_text = ''.join(decoded_chars)
@@ -4047,7 +4061,7 @@ def bruteforce_steghide(filepath, wordlist=None, delay=0.1, parallel=5):
                                   capture_output=True,text=True,timeout=15)
             if result.returncode==0 and out_file.exists() and out_file.stat().st_size>0:
                 return (pw, out_file.read_text(errors='ignore'))
-        except: pass
+        except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
         return None
     with ThreadPoolExecutor(max_workers=parallel) as ex:
         futures={ex.submit(try_pw,pw):pw for pw in wordlist}
@@ -4303,8 +4317,7 @@ def scan_all_outputs_for_flags(filepath):
                                 if decoded:
                                     found = scan_text_for_flags(decoded, f"POST-SCAN-B64-{f.name}")
                                     new_flags += len(found)
-                        except:
-                            pass
+                        except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
                         scanned_files += 1
             elif item.is_file():
                 # File langsung (bukan folder)
@@ -4313,8 +4326,7 @@ def scan_all_outputs_for_flags(filepath):
                     if strings_out:
                         found = scan_text_for_flags(strings_out, f"POST-SCAN-{item.name}")
                         new_flags += len(found)
-                except:
-                    pass
+                except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
                 scanned_files += 1
     
     # 2. Scan juga output files dengan pattern khusus
@@ -4345,8 +4357,7 @@ def scan_all_outputs_for_flags(filepath):
                             if strings_out:
                                 found = scan_text_for_flags(strings_out, f"POST-SCAN-{f.name}")
                                 new_flags += len(found)
-                        except:
-                            pass
+                        except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
                         scanned_files += 1
             elif item.is_file():
                 try:
@@ -4354,8 +4365,7 @@ def scan_all_outputs_for_flags(filepath):
                     if strings_out:
                         found = scan_text_for_flags(strings_out, f"POST-SCAN-{item.name}")
                         new_flags += len(found)
-                except:
-                    pass
+                except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
                 scanned_files += 1
     
     if scanned_files > 0:
@@ -4432,6 +4442,130 @@ def print_final_report(filename):
 
     print(f"\n{Fore.YELLOW}{'═'*W}{Style.RESET_ALL}\n")
 
+# ── Detailed Verbose Report (v6.0) ───────────────────
+
+def print_detailed_report(filepath, file_info=None):
+    """
+    Print comprehensive analysis report with all findings.
+    This is ALWAYS called to ensure output is shown.
+    """
+    import sys
+    
+    W = 70
+    filename = Path(filepath).name
+    
+    print(f"\n{Fore.CYAN}{'═' * W}", flush=True)
+    print(f"  📊  RAVEN DETAILED ANALYSIS REPORT — {filename}", flush=True)
+    print(f"{'═' * W}{Style.RESET_ALL}", flush=True)
+    
+    # File information
+    if file_info:
+        print(f"\n{Fore.YELLOW}📁 File Information:{Style.RESET_ALL}", flush=True)
+        for key, value in file_info.items():
+            print(f"  {Fore.CYAN}{key}:{Style.RESET_ALL} {value}", flush=True)
+    
+    # Tool execution log (detailed)
+    if tool_log:
+        seen = {}
+        for entry in tool_log:
+            if entry["status"] != "running":
+                seen[entry["tool"]] = entry
+        unique_log = list(seen.values())
+        
+        print(f"\n{Fore.GREEN}🔧 Tools Executed ({len(unique_log)}):{Style.RESET_ALL}", flush=True)
+        success_count = sum(1 for t in unique_log if "✅" in t["status"])
+        skip_count = sum(1 for t in unique_log if "⏭" in t["status"])
+        error_count = sum(1 for t in unique_log if "❌" in t["status"])
+        
+        print(f"  {Fore.GREEN}✅ Success: {success_count}{Style.RESET_ALL} | ", end="", flush=True)
+        print(f"{Fore.YELLOW}⏭ Skipped: {skip_count}{Style.RESET_ALL} | ", end="", flush=True)
+        print(f"{Fore.RED}❌ Errors: {error_count}{Style.RESET_ALL}", flush=True)
+        print()
+        
+        for i, entry in enumerate(unique_log, 1):
+            tool = entry["tool"]
+            status = entry["status"]
+            result = entry.get("result", "")
+            
+            # Color code status
+            if "✅" in status:
+                icon = f"{Fore.GREEN}✅{Style.RESET_ALL}"
+            elif "⬜" in status:
+                icon = f"{Fore.WHITE}⬜{Style.RESET_ALL}"
+            elif "⏭" in status:
+                icon = f"{Fore.YELLOW}⏭{Style.RESET_ALL}"
+            else:
+                icon = f"{Fore.RED}❌{Style.RESET_ALL}"
+            
+            print(f"  {i}. {icon} {Fore.CYAN}{tool}{Style.RESET_ALL}: {status}", flush=True)
+            if result and len(result) > 0:
+                # Show first 100 chars of result
+                preview = result[:100] + "..." if len(result) > 100 else result
+                print(f"     {Fore.WHITE}→ {preview}{Style.RESET_ALL}", flush=True)
+    
+    # All findings (not just flags)
+    if flag_summary:
+        print(f"\n{Fore.MAGENTA}📝 All Findings ({len(flag_summary)}):{Style.RESET_ALL}", flush=True)
+        
+        # Group by category
+        categories = {}
+        for item in flag_summary:
+            match = re.search(r'\[(.*?)\]', item)
+            if match:
+                cat = match.group(1)
+                if cat not in categories:
+                    categories[cat] = []
+                categories[cat].append(item)
+        
+        for cat, items in sorted(categories.items()):
+            print(f"\n  {Fore.YELLOW}📂 {cat} ({len(items)} findings):{Style.RESET_ALL}", flush=True)
+            for item in items[:5]:  # Show max 5 per category
+                content = re.sub(r'\[.*?\]\s*', '', item)
+                print(f"    • {content[:80]}", flush=True)
+            if len(items) > 5:
+                print(f"    {Fore.YELLOW}... and {len(items) - 5} more{Style.RESET_ALL}", flush=True)
+    
+    # Base64 decoded (verbose)
+    if base64_collector:
+        print(f"\n{Fore.BLUE}🔓 Base64 Decoded ({len(base64_collector)}):{Style.RESET_ALL}", flush=True)
+        for i, item in enumerate(base64_collector[:10], 1):
+            print(f"  {i}. {item[:100]}{'...' if len(item) > 100 else ''}", flush=True)
+        if len(base64_collector) > 10:
+            print(f"  {Fore.YELLOW}... and {len(base64_collector) - 10} more{Style.RESET_ALL}", flush=True)
+    
+    # Flags section
+    unique_flags = sorted(found_flags_set)
+    if unique_flags:
+        print(f"\n{Fore.GREEN}{'─' * W}{Style.RESET_ALL}", flush=True)
+        print(f"  🚩  FLAGS FOUND ({len(unique_flags)})", flush=True)
+        print(f"{'─' * W}", flush=True)
+        for i, flag in enumerate(unique_flags, 1):
+            print(f"  {Fore.GREEN}{Style.BRIGHT}{i}. {flag}{Style.RESET_ALL}", flush=True)
+        print(f"{Fore.GREEN}{'─' * W}{Style.RESET_ALL}\n", flush=True)
+    else:
+        print(f"\n{Fore.YELLOW}{'─' * W}{Style.RESET_ALL}", flush=True)
+        print(f"  ⚠️  No flags found in this file", flush=True)
+        print(f"{'─' * W}", flush=True)
+        print(f"\n{Fore.CYAN}💡 Recommendations:{Style.RESET_ALL}", flush=True)
+        print(f"  • Try different analysis modes (e.g., --steghide, --lsb, --crypto)", flush=True)
+        print(f"  • Use --all for comprehensive scan", flush=True)
+        print(f"  • Check output folders for detailed tool results", flush=True)
+        print(f"  • Try manual inspection with strings, exiftool, binwalk", flush=True)
+        print(f"\n{Fore.YELLOW}Example commands:{Style.RESET_ALL}", flush=True)
+        print(f"  raven {filename} --auto         # Auto-detect all tools", flush=True)
+        print(f"  raven {filename} --all          # Force all tools", flush=True)
+        print(f"  raven {filename} --quick        # Fast scan", flush=True)
+        print(f"  strings {filename} | grep flag  # Manual string search", flush=True)
+        print(f"{Fore.YELLOW}{'─' * W}{Style.RESET_ALL}\n", flush=True)
+    
+    # Output folders
+    print(f"{Fore.CYAN}📂 Check output folders for detailed results:{Style.RESET_ALL}", flush=True)
+    print(f"  • {filename}_*/  - Tool-specific output folders", flush=True)
+    print(f"  • Use 'ls -la {filename}_*/' to see all results", flush=True)
+    
+    print(f"\n{Fore.CYAN}{'═' * W}{Style.RESET_ALL}\n", flush=True)
+
+
 # ── Main Processor ────────────────────────────
 
 def _build_result():
@@ -4459,7 +4593,7 @@ def decode_base32(candidate):
         s = decoded.decode('utf-8', errors='ignore')
         if len(s.strip()) > 3 and all(c.isprintable() or c.isspace() for c in s):
             return s
-    except: pass
+    except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
     return None
 
 def decode_base58(candidate):
@@ -4479,7 +4613,7 @@ def decode_base58(candidate):
         s = bytes(result).decode('utf-8', errors='ignore')
         if len(s.strip()) > 3 and all(c.isprintable() for c in s.strip()):
             return s
-    except: pass
+    except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
     return None
 
 def decode_base85(candidate):
@@ -4493,7 +4627,7 @@ def decode_base85(candidate):
             decoded = _b64.a85decode(candidate)
             s = decoded.decode('utf-8', errors='ignore')
             if len(s.strip()) > 3: return s
-        except: pass
+        except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
     return None
 
 def decode_url_encoding(candidate):
@@ -4503,7 +4637,7 @@ def decode_url_encoding(candidate):
         decoded = unquote(candidate)
         if decoded != candidate and len(decoded) > 3:
             return decoded
-    except: pass
+    except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
     return None
 
 def decode_hex_string(candidate):
@@ -4514,7 +4648,7 @@ def decode_hex_string(candidate):
             decoded = bytes.fromhex(clean).decode('utf-8', errors='ignore')
             if len(decoded.strip()) > 3 and all(c.isprintable() or c.isspace() for c in decoded):
                 return decoded
-    except: pass
+    except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
     return None
 
 def decode_xor_brute(data_bytes, key_range=256):
@@ -4528,7 +4662,7 @@ def decode_xor_brute(data_bytes, key_range=256):
                 if re.search(pat, s, re.IGNORECASE):
                     results.append((key, s))
                     break
-        except: pass
+        except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
     return results
 
 def auto_decode_multi(text, source=""):
@@ -4890,7 +5024,7 @@ def analyze_ntfs_deleted(filepath):
                 try:
                     txt = chunk.decode('utf-8', errors='ignore')
                     scan_text_for_flags(txt, f"SIG-{fmt}")
-                except: pass
+                except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
                 offset = idx + 1
     except Exception as e:
         print(f"{Fore.YELLOW}[NTFS-RECOVER] Signature scan gagal: {e}{Style.RESET_ALL}")
@@ -5104,8 +5238,7 @@ def _try_all_encodings_on_payload(text, raw_bytes):
                     if decoded not in results:
                         results.append(decoded)
                     break
-            except:
-                pass
+            except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
 
     # Base32 decode
     b32_result = decode_base32(text)
@@ -5142,8 +5275,7 @@ def _try_all_encodings_on_payload(text, raw_bytes):
                 second = _b64.b64decode(clean + '==').decode('utf-8', errors='ignore').strip()
                 if second and len(second) >= 2 and second not in results:
                     results.append(second)
-            except:
-                pass
+            except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
 
     return results
 
@@ -5518,7 +5650,7 @@ def analyze_memory_advanced(filepath, vol_cmd=None):
                 return out
         except subprocess.TimeoutExpired:
             print(f"{Fore.RED}[MEMORY-ADV] Timeout: {plugin}{Style.RESET_ALL}")
-        except: pass
+        except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
         return ""
 
     if not vol_cmd:
@@ -7007,11 +7139,11 @@ def analyze_crypto_file(filepath, args):
     auto_decode_multi(text, "CRYPTO-FILE")
 
     scan_all_outputs_for_flags(repaired)
-    print_final_report(filepath.name)
+    return _build_result()
     return _build_result()
 
 
-# ── Reversing Module (v5.0) ──────────────────────────────────
+# ── Reversing Module (v6.0.1) ──────────────────────────────────
 
 def run_cmd(cmd, timeout=60):
     """Run command with timeout and capture output."""
@@ -7292,8 +7424,7 @@ def xor_analysis_on_binary(filepath, output_dir):
                                 add_to_summary("XOR-FLAG", f"key=0x{key:02x}: {flag_str}")
                                 signal_flag_found()
                                 return flags_found  # Early exit on flag found
-                        except:
-                            pass
+                        except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
         
         # Progress indicator for slow scans
         if key % 50 == 0 and not check_early_exit():
@@ -7331,10 +7462,8 @@ def xor_analysis_on_binary(filepath, output_dir):
                                         add_to_summary("XOR-FLAG", f"key={potential_key.hex()}: {flag_str}")
                                         signal_flag_found()
                                         return flags_found
-                                except:
-                                    pass
-            except:
-                pass
+                                except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
+            except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
     
     # Method 3: Look for XOR instructions in disassembly
     print(f"\n  {Fore.YELLOW}[XOR] Searching for XOR operations in binary...{Style.RESET_ALL}")
@@ -7392,8 +7521,7 @@ def xor_analysis_on_binary(filepath, output_dir):
                         if decoded_str not in flags_found:
                             flags_found.append(decoded_str)
                             signal_flag_found()
-                except:
-                    pass
+                except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
     
     # Method 5: Check for data sections with high entropy (likely encrypted/XOR'd)
     print(f"\n  {Fore.YELLOW}[XOR] Analyzing data sections for obfuscation...{Style.RESET_ALL}")
@@ -7426,8 +7554,7 @@ def xor_analysis_on_binary(filepath, output_dir):
                                     flags_found.append(match)
                                     add_to_summary("XOR-FLAG", f"region@0x{offset:06x}: {match}")
                                     signal_flag_found()
-                except:
-                    pass
+                except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
     
     if flags_found:
         print(f"\n{Fore.GREEN}{'='*50}")
@@ -7599,8 +7726,7 @@ def padding_oracle_attack(iv_hex, ct_hex, oracle_func, block_size=16):
         pad_len = all_plaintext[-1]
         if 1 <= pad_len <= block_size and all(b == pad_len for b in all_plaintext[-pad_len:]):
             all_plaintext = all_plaintext[:-pad_len]
-    except:
-        pass
+    except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
     
     print(f"\n{'='*60}")
     print(f"{Fore.GREEN}[+] FLAG (hex) : {all_plaintext.hex()}{Style.RESET_ALL}")
@@ -7699,7 +7825,34 @@ def detect_and_attack_padding_oracle(filepath, args):
 # ── Crypto Engine (v4.0) ─────────────────────────────────────────────
 
 def process_file(filepath, args):
-    print(f"\n{Fore.BLUE}{'='*60}\nPROCESSING: {filepath.name}\n{'='*60}{Style.RESET_ALL}")
+    """
+    Process a single file with all available tools.
+    Always prints report even if errors occur (v6.0 fix).
+    """
+    try:
+        _process_file_internal(filepath, args)
+    except Exception as e:
+        print(f"\n{Fore.RED}{'═' * 60}")
+        print(f"  ❌ ERROR during analysis: {e}{Style.RESET_ALL}")
+        print(f"{Fore.RED}  💡 The analysis encountered an unexpected error.{Style.RESET_ALL}")
+        print(f"{Fore.RED}  📝 Error details have been logged above.{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}{'═' * 60}{Style.RESET_ALL}\n")
+        import traceback
+        traceback.print_exc()
+    finally:
+        # ALWAYS print final report, even on error
+        try:
+            scan_all_outputs_for_flags(filepath)
+            return _build_result()
+            # Also print detailed report for better visibility
+            print_detailed_report(filepath)
+        except Exception as report_error:
+            print(f"\n{Fore.RED}[ERROR] Failed to print report: {report_error}{Style.RESET_ALL}")
+
+
+def _process_file_internal(filepath, args):
+    """Internal file processing logic (separated for error handling)."""
+    print(f"\n{Fore.BLUE}{'='*60}\nPROCESSING: {filepath.name}\n{'='*60}{Style.RESET_ALL}", flush=True)
     reset_globals()
 
     # ── Deteksi tipe file (gunakan juga magic bytes)
@@ -7720,13 +7873,13 @@ def process_file(filepath, args):
         print(f"{Fore.CYAN}{exif_out}{Style.RESET_ALL}")
         collect_base64_from_text(exif_out)
         scan_text_for_flags(exif_out, "EXIF-AUTO")
-    except: pass
+    except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
 
     analyze_strings_and_flags(repaired, args.format)
 
     if check_early_exit():
         scan_all_outputs_for_flags(repaired)
-        print_final_report(filepath.name); return _build_result()
+        return _build_result()  # Report will be printed in finally block
 
     # ═══════════════════════════════════════════════════════════
     # AUTO-DETECTION ENGINE (v5.1) — Content-Based Analysis
@@ -7758,10 +7911,9 @@ def process_file(filepath, args):
                         result = solve_encoding_maze(full_b32)
                         if result:
                             scan_all_outputs_for_flags(repaired)
-                            print_final_report(filepath.name)
                             return _build_result()
-                except:
-                    pass
+                            return _build_result()
+                except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
     
     # 2. Log File Detection (Apache/Nginx format)
     if real_ext in ['txt', 'log']:
@@ -7773,7 +7925,7 @@ def process_file(filepath, args):
             print(f"{Fore.CYAN}    • Log entries: {len(log_lines)}{Style.RESET_ALL}")
             analyze_log(repaired)
             scan_all_outputs_for_flags(repaired)
-            print_final_report(filepath.name)
+            return _build_result()
             return _build_result()
     
     # 3. Registry File Detection
@@ -7785,7 +7937,7 @@ def process_file(filepath, args):
                 print(f"{Fore.CYAN}    • Contains hex-encoded values (potential hidden data){Style.RESET_ALL}")
             analyze_registry(repaired)
             scan_all_outputs_for_flags(repaired)
-            print_final_report(filepath.name)
+            return _build_result()
             return _build_result()
     
     # 4. Crypto/Encoding Detection
@@ -7840,7 +7992,7 @@ def process_file(filepath, args):
 
                 analyze_binary_digits(repaired, forced_width=getattr(args, 'bin_width', None))
                 scan_all_outputs_for_flags(repaired)
-                print_final_report(filepath.name)
+                return _build_result()
                 return _build_result()
 
     # 6. Morse Code Detection
@@ -7897,17 +8049,16 @@ def process_file(filepath, args):
                         scan_text_for_flags(decoded, "HEX-DECODE")
                         if FLAG_FOUND:
                             scan_all_outputs_for_flags(repaired)
-                            print_final_report(filepath.name)
                             return _build_result()
-                    except:
-                        pass
+                            return _build_result()
+                    except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
 
     # 5. Autorun/INF Detection
     if repaired.name.lower() in ['autorun.inf', 'autorun.ini'] or repaired.suffix.lower() in ['.inf', '.ini']:
         print(f"\n{Fore.GREEN}[AUTO] 💾 Autorun/INF file detected!{Style.RESET_ALL}")
         analyze_autorun(repaired)
         scan_all_outputs_for_flags(repaired)
-        print_final_report(filepath.name)
+        return _build_result()
         return _build_result()
     
     # 6. Disk Image Detection
@@ -7921,7 +8072,7 @@ def process_file(filepath, args):
             print(f"{Fore.CYAN}    • Running partition analysis...{Style.RESET_ALL}")
             analyze_disk_partitions(repaired)
         scan_all_outputs_for_flags(repaired)
-        print_final_report(filepath.name)
+        return _build_result()
         return _build_result()
 
     # 7. Memory Dump Detection
@@ -7929,7 +8080,7 @@ def process_file(filepath, args):
         print(f"\n{Fore.GREEN}[AUTO] 🧠 Memory dump detected!{Style.RESET_ALL}")
         analyze_memory_advanced(repaired)
         scan_all_outputs_for_flags(repaired)
-        print_final_report(filepath.name)
+        return _build_result()
         return _build_result()
 
     # If no auto-detection matched, proceed with standard analysis
@@ -7980,7 +8131,7 @@ def process_file(filepath, args):
         try:
             _sample = repaired.read_bytes()[:65536]
             _raw_entropy = calculate_entropy(_sample)
-        except: pass
+        except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
     is_memory_dump = (
         is_memdump and
         (repaired.suffix.lower() in ['.raw','.mem','.dmp','.vmem']) and
@@ -7996,12 +8147,12 @@ def process_file(filepath, args):
     if is_reg:
         analyze_registry(repaired)
         scan_all_outputs_for_flags(repaired)
-        print_final_report(filepath.name); return _build_result()
+        return _build_result()
 
     if is_autorun:
         analyze_autorun(repaired)
         scan_all_outputs_for_flags(repaired)
-        print_final_report(filepath.name); return _build_result()
+        return _build_result()
 
     # ── MEMORY DUMP auto-route
     if is_memory_dump or args.volatility:
@@ -8010,31 +8161,31 @@ def process_file(filepath, args):
         _memory_fallback_scan(repaired, repaired.parent / f"{repaired.stem}_memscan")
         if check_early_exit():
             scan_all_outputs_for_flags(repaired)
-            print_final_report(filepath.name); return _build_result()
+            return _build_result()
         # Lanjutkan ke volatility untuk analisis lebih dalam
         analyze_volatility(repaired, getattr(args,'vol_args',None))
         if not check_early_exit():
             analyze_memory_advanced(repaired)
         scan_all_outputs_for_flags(repaired)
-        print_final_report(filepath.name); return _build_result()
+        return _build_result()
 
     if args.volatility:
         analyze_volatility(repaired, getattr(args,'vol_args',None))
         scan_all_outputs_for_flags(repaired)
-        print_final_report(filepath.name); return _build_result()
+        return _build_result()
 
     # ── Manual flag override
     if hasattr(args, 'ntfs') and args.ntfs:
         print(f"{Fore.MAGENTA}[AUTO] --ntfs: NTFS recovery mode{Style.RESET_ALL}")
         analyze_ntfs_deleted(repaired)
         scan_all_outputs_for_flags(repaired)
-        print_final_report(filepath.name); return _build_result()
+        return _build_result()
 
     if hasattr(args, 'partition') and args.partition:
         print(f"{Fore.MAGENTA}[AUTO] --partition: Partition scan mode{Style.RESET_ALL}")
         analyze_disk_partitions(repaired)
         scan_all_outputs_for_flags(repaired)
-        print_final_report(filepath.name); return _build_result()
+        return _build_result()
 
     # ── DISK IMAGE ROUTING (NTFS / MBR / generic)
     if is_ntfs_disk or (is_disk and "ntfs" in file_desc):
@@ -8043,7 +8194,7 @@ def process_file(filepath, args):
         if not check_early_exit():
             analyze_disk_partitions(repaired)
         scan_all_outputs_for_flags(repaired)
-        print_final_report(filepath.name); return _build_result()
+        return _build_result()
 
     if is_mbr_disk or (is_disk and "mbr" in file_desc):
         print(f"{Fore.MAGENTA}[AUTO] MBR disk image terdeteksi → partition analysis pipeline{Style.RESET_ALL}")
@@ -8051,7 +8202,7 @@ def process_file(filepath, args):
         if not check_early_exit():
             analyze_ntfs_deleted(repaired)
         scan_all_outputs_for_flags(repaired)
-        print_final_report(filepath.name); return _build_result()
+        return _build_result()
 
     # ── QUICK MODE
     if args.quick:
@@ -8065,11 +8216,11 @@ def process_file(filepath, args):
             if is_png and AVAILABLE_TOOLS.get('zsteg'): analyze_zsteg(repaired)
             if check_early_exit():
                 scan_all_outputs_for_flags(repaired)
-                print_final_report(filepath.name); return _build_result()
+                return _build_result()
             if AVAILABLE_TOOLS.get('stegseek'): analyze_stegseek(repaired, getattr(args,'wordlist',None))
             if check_early_exit():
                 scan_all_outputs_for_flags(repaired)
-                print_final_report(filepath.name); return _build_result()
+                return _build_result()
             if AVAILABLE_TOOLS.get('steghide'): analyze_steghide(repaired)
         if is_pcap:
             analyze_pcap_basic(repaired); search_pcap_flags(repaired)
@@ -8086,16 +8237,16 @@ def process_file(filepath, args):
             forensic_zip_analysis(repaired, args)
             if check_early_exit():
                 scan_all_outputs_for_flags(repaired)
-                print_final_report(filepath.name); return _build_result()
+                return _build_result()
             crack_zip(repaired, getattr(args,'wordlist',None), args)
         scan_all_outputs_for_flags(repaired)
-        print_final_report(filepath.name); return _build_result()
+        return _build_result()
 
     # ── PCAP ONLY
     if args.pcap and is_pcap:
         analyze_pcap_full(repaired)
         scan_all_outputs_for_flags(repaired)
-        print_final_report(filepath.name); return _build_result()
+        return _build_result()
 
     # ── ALL / AUTO
     if args.all or args.auto:
@@ -8108,7 +8259,7 @@ def process_file(filepath, args):
             forensic_zip_analysis(repaired, args)
             if check_early_exit():
                 scan_all_outputs_for_flags(repaired)
-                print_final_report(filepath.name); return _build_result()
+                return _build_result()
             crack_zip(repaired, getattr(args,'wordlist',None), args)
         if is_image:
             analyze_image(repaired,deep=args.deep,alpha=args.alpha)
@@ -8250,24 +8401,26 @@ def process_file(filepath, args):
             try:
                 text = repaired.read_text(errors='ignore')
                 analyze_deobfuscation(text, "MANUAL")
-            except: pass
+            except Exception as e:\n        print(f"{Fore.YELLOW}[WARN] Exception in {function_name}: {e}{Style.RESET_ALL}")\n        log_tool("error", "?? Warning", str(e))
 
     scan_all_outputs_for_flags(repaired)
-    print_final_report(filepath.name)
+    return _build_result()
     return _build_result()
 
 # ── Entry Point ───────────────────────────────
 
 def main():
-    print(f"{Fore.CYAN}{'='*55}\n   RAVEN v5.0 — CTF Multi-Category Toolkit\n{'='*55}{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}{'='*55}\n   RAVEN v6.0.1 — CTF Multi-Category Toolkit\n{'='*55}{Style.RESET_ALL}")
     check_tool_availability()
     p=argparse.ArgumentParser(
-        description="RAVEN v5.0 — CTF Multi-Category Toolkit",
+        description="RAVEN v6.0.1 — CTF Multi-Category Toolkit",
         formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("files",nargs="*",help="File(s), wildcard, atau direktori")
     p.add_argument("-f","--format",default=None,help="Custom flag prefix (e.g. 'picoCTF{')")
     p.add_argument("--learn", nargs="?", const=True, default=None, metavar="CAT",
                      help="Display CTF learning guide. Categories: linux, python, encoding, networking, web, crypto, pwn, reverse, forensics. Use 'list' to show all.")
+    p.add_argument("-v", "--verbose", action="store_true",
+                     help="Show detailed analysis output (all findings, tool logs, and recommendations)")
 
     modes=p.add_argument_group("Modes")
     modes.add_argument("--quick",     action="store_true",help="Ultra-fast: strings+zsteg+stegseek+early exit")
@@ -8565,7 +8718,7 @@ PYTHON_ENGINE
 
 
 # ─────────────────────────────────────────────
-# INTERACTIVE CATEGORY MENU (v5.0)
+# INTERACTIVE CATEGORY MENU (v6.0.1)
 # ─────────────────────────────────────────────
 
 # Store selected mode flags globally
@@ -8588,7 +8741,7 @@ show_category_menu_select() {
 
     echo ""
     echo -e "${CYAN}  ╔═══════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}  ║     RAVEN v5.0 — Interactive Mode Selector  ║${NC}"
+    echo -e "${CYAN}  ║     RAVEN v6.0.1 — Interactive Mode Selector  ║${NC}"
     echo -e "${CYAN}  ╚═══════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${BLUE}  Files to analyze: ${#files[@]}${NC}"
@@ -8746,7 +8899,7 @@ show_category_menu_whiptail() {
 
     # Use checklist for multi-select
     local choices
-    choices=$(whiptail --title "RAVEN v5.0 — Multi-Select Mode" \
+    choices=$(whiptail --title "RAVEN v6.0.1 — Multi-Select Mode" \
         --backtitle "CTF Multi-Category Toolkit | Space: select | Enter: confirm" \
         --checklist "\nFiles: $file_list\nPilih beberapa mode (Space untuk pilih):" 22 78 9 \
         "auto" "⚡ Auto-detect" ON \
@@ -8800,7 +8953,7 @@ show_category_menu_fzf() {
     local files=("$@")
 
     echo -e "${CYAN}  ╔═══════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}  ║     RAVEN v5.0 — FZF Multi-Select Mode       ║${NC}"
+    echo -e "${CYAN}  ║     RAVEN v6.0.1 — FZF Multi-Select Mode       ║${NC}"
     echo -e "${CYAN}  ╚═══════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${BLUE}  Files to analyze: ${#files[@]}${NC}"
@@ -9068,3 +9221,4 @@ main() {
 }
 
 main "$@"
+
