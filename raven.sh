@@ -132,6 +132,9 @@ ${BOLD}Brute Force:${NC}
   --parallel N     Jumlah thread (default: 5)
 
 ${BOLD}Misc:${NC}
+  --learn [CAT]    Display CTF learning guide (no file needed)
+                   Categories: linux, python, encoding, networking, web, crypto, pwn, reverse, forensics
+                   Use 'list' to show all available categories
   -f, --format STR Custom flag prefix (e.g. 'picoCTF{')
   --install        Install semua optional tools
   --update         Update RAVEN yang sudah terinstall ke versi baru ini
@@ -8263,6 +8266,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("files",nargs="*",help="File(s), wildcard, atau direktori")
     p.add_argument("-f","--format",default=None,help="Custom flag prefix (e.g. 'picoCTF{')")
+    p.add_argument("--learn", nargs="?", const=True, default=None, metavar="CAT",
+                     help="Display CTF learning guide. Categories: linux, python, encoding, networking, web, crypto, pwn, reverse, forensics. Use 'list' to show all.")
 
     modes=p.add_argument_group("Modes")
     modes.add_argument("--quick",     action="store_true",help="Ultra-fast: strings+zsteg+stegseek+early exit")
@@ -8382,6 +8387,20 @@ def main():
     bf.add_argument("--parallel",  type=int,  default=5,  help="Threads (default: 5)")
 
     args=p.parse_args()
+
+    # ── Learning mode (no file needed)
+    if args.learn is not None:
+        try:
+            from learning import run_learning_mode
+            if args.learn is True:  # --learn without argument
+                exit_code = run_learning_mode()
+            else:  # --learn with category argument
+                exit_code = run_learning_mode(args.learn)
+            sys.exit(exit_code)
+        except ImportError:
+            print(f"{Fore.RED}[ERROR] Learning module not found.{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}Please ensure engine/learning.py exists or run --install-global{Style.RESET_ALL}")
+            sys.exit(1)
 
     # ── Mode khusus: folder scan
     if args.folder:
@@ -8873,6 +8892,79 @@ show_category_menu() {
 }
 
 # ─────────────────────────────────────────────
+# LEARN MODE HANDLER
+# ─────────────────────────────────────────────
+handle_learn_mode() {
+    local learn_args=("$@")
+    local category=""
+    
+    # Extract category if provided
+    for arg in "${learn_args[@]}"; do
+        if [[ "$arg" != "--learn" ]]; then
+            category="$arg"
+            break
+        fi
+    done
+    
+    # Call Python learning module
+    local py
+    py=$(check_python) || die "Python 3.8+ tidak ditemukan."
+    
+    # Setup venv if needed
+    setup_venv "$py" 2>/dev/null || true
+    
+    # Run learning module
+    if [[ -n "$category" ]]; then
+        "$VENV_DIR/bin/python" -c "
+import sys
+sys.path.insert(0, '$(dirname "$PYTHON_INLINE")')
+sys.path.insert(0, '$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/engine')
+
+try:
+    from learning import run_learning_mode
+    exit_code = run_learning_mode('$category')
+    sys.exit(exit_code)
+except ImportError:
+    # Fallback: try from RAVEN_HOME
+    import os
+    raven_home = os.path.expanduser('~/.raven')
+    sys.path.insert(0, os.path.join(raven_home, 'engine'))
+    try:
+        from learning import run_learning_mode
+        exit_code = run_learning_mode('$category')
+        sys.exit(exit_code)
+    except:
+        print('Learning module not found. Please run --install-global first.')
+        sys.exit(1)
+"
+    else
+        "$VENV_DIR/bin/python" -c "
+import sys
+sys.path.insert(0, '$(dirname "$PYTHON_INLINE")')
+sys.path.insert(0, '$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/engine')
+
+try:
+    from learning import run_learning_mode
+    exit_code = run_learning_mode()
+    sys.exit(exit_code)
+except ImportError:
+    # Fallback: try from RAVEN_HOME
+    import os
+    raven_home = os.path.expanduser('~/.raven')
+    sys.path.insert(0, os.path.join(raven_home, 'engine'))
+    try:
+        from learning import run_learning_mode
+        exit_code = run_learning_mode()
+        sys.exit(exit_code)
+    except:
+        print('Learning module not found. Please run --install-global first.')
+        sys.exit(1)
+"
+    fi
+}
+
+
+# ─────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────
 main() {
@@ -8884,6 +8976,7 @@ main() {
             --update)          update_global ;;
             --install-global)  install_global ;;
             --uninstall)       uninstall_global ;;
+            --learn)           handle_learn_mode "$@" ; exit 0 ;;
             -h|--help)         usage; exit 0 ;;
         esac
     done

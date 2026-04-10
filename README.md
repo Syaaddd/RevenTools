@@ -4,16 +4,17 @@
 
 **Toolkit Otomasi CTF Multi-Kategori yang Cerdas**
 
-[![Version](https://img.shields.io/badge/version-v5.2-blue?style=for-the-badge&logo=github)](https://github.com/Syaaddd/raven-ctf)
+[![Version](https://img.shields.io/badge/version-v6.0-blue?style=for-the-badge&logo=github)](https://github.com/Syaaddd/raven-ctf)
 [![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](LICENSE)
 [![Shell](https://img.shields.io/badge/shell-bash-orange?style=for-the-badge&logo=gnu-bash)](https://www.gnu.org/software/bash/)
 [![Python](https://img.shields.io/badge/python-3.8%2B-yellow?style=for-the-badge&logo=python)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux-lightgrey?style=for-the-badge&logo=linux)](https://www.linux.org/)
 [![CTF](https://img.shields.io/badge/CTF-ready-red?style=for-the-badge&logo=hackthebox)](https://github.com/Syaaddd/raven-ctf)
+[![Learning](https://img.shields.io/badge/Learning%20Guide-Included-purple?style=for-the-badge&logo=bookstack)](docs/CTF_FUNDAMENTALS.md)
 
 *Alat otomatis untuk semua kategori CTF — forensics, steganografi, kriptografi, network, memory forensics, binary analysis, dan deteksi flag* 🚩
 
-[📦 Instalasi](#-instalasi) · [▶️ Penggunaan](#️-penggunaan) · [📁 Output](#-output-folder) · [🆕 Changelog](#-changelog)
+[📦 Instalasi](#-instalasi) · [▶️ Penggunaan](#️-penggunaan) · [📚 Learning Guide](#-learning-guide-new) · [📁 Output](#-output-folder) · [🆕 Changelog](#-changelog)
 
 </div>
 
@@ -23,15 +24,14 @@
 
 RAVEN adalah toolkit CTF berbasis Bash + Python yang dirancang untuk mempercepat proses analisis challenge. Mulai dari steganografi gambar, forensics memori, network PCAP, binary reversing, hingga decoding binary digits, morse code, dan decimal ASCII — semua terintegrasi dalam **satu standalone script**.
 
-**🆕 v5.2 — Advanced Crypto Attacks, Steganography Enhancements & Unicode Stego**
+**🆕 v6.0 — Modular Architecture & CTF Learning Guide**
 
-RAVEN v5.2 menambahkan kemampuan analisis lanjutan untuk challenge kompetitif:
-- **RSA Small Exponent Attack** — Serangan otomatis untuk e=3, 5, 7 (sangat umum di CTF)
-- **Substitution Cipher Auto** — Frequency analysis untuk cipher substitusi (English & Indonesian)
-- **Appended Data Detection** — Deteksi data tersembunyi setelah EOF marker (PNG/JPEG/ZIP/GIF)
-- **WAV Steganography** — LSB extraction dari file audio WAV
-- **Zero-Width Character Detection** — Decode steganografi Unicode (\u200b, \u200c, \u200d, \ufeff)
-- **CTF-Optimized Wordlist** — 100x lebih cepat dari rockyou.txt untuk kompetisi
+RAVEN v6.0 introduces:
+- **🎓 CTF Learning Guide** — Complete roadmap from beginner to advanced (see [Learning Guide](#-learning-guide-new))
+- **🧩 Modular Architecture** — Cleaner code structure for maintainability
+- **📚 Quick Reference** - Per-category command cheatsheets (see [Quick Reference](docs/QUICK_REFERENCE.md))
+- **🔧 Enhanced Documentation** - Better code clarity and error handling
+- All features from v5.2 plus improved organization
 
 **Kategori yang didukung:**
 
@@ -122,15 +122,82 @@ pip install colorama Pillow numpy requests
 
 ```
 raven-ctf/
-├── raven.sh            ← Standalone Bash + Python inline engine (~6700 baris)
-├── README.md           ← Dokumentasi (file ini)
-└── NEW_FEATURES.md     ← Dokumentasi fitur baru v5.1
+├── raven.sh                    ← Main entry point (Bash wrapper)
+├── README.md                   ← Main documentation
+├── NEW_FEATURES_V6.md          ← Changelog for v6.0
+├── KonsepUpdate.txt            ← Development roadmap
+├── engine/                     ← Python engine modules (modular)
+│   ├── __init__.py
+│   ├── core.py                 ← Core utilities (flags, logging, tools)
+│   ├── learning.py             ← CTF learning mode
+│   └── ...                     ← Other modules (future)
+├── docs/                       ← Documentation
+│   ├── CTF_FUNDAMENTALS.md     ← Complete learning guide
+│   └── QUICK_REFERENCE.md      ← Command cheatsheets
+└── wordlists/
+    └── ctf_passwords.txt       ← CTF-optimized wordlist
 
-~/.raven/               ← Data runtime (dibuat otomatis)
-└── engine.py           ← Python engine (inline, auto-generated)
+~/.raven/                       ← Data runtime (dibuat otomatis)
+└── engine/                     ← Installed engine modules
 
-/usr/local/bin/raven    ← Binary global (setelah --install-global)
+/usr/local/bin/raven            ← Binary global (setelah --install-global)
 ```
+
+---
+
+## 📚 Learning Guide (NEW!)
+
+**RAVEN sekarang termasuk panduan belajar lengkap untuk menguasai CTF!**
+
+### Quick Start Learning
+```bash
+# Tampilkan roadmap belajar lengkap
+raven --learn
+
+# Fokus pada topik tertentu
+raven --learn crypto            # Kriptografi
+raven --learn web               # Web exploitation
+raven --learn pwn               # Binary exploitation
+raven --learn forensics         # Forensics
+raven --learn reverse           # Reverse engineering
+raven --learn list              # Tampilkan semua kategori
+```
+
+### Learning Resources
+
+| Resource | Description |
+|----------|-------------|
+| 📖 **[CTF Fundamentals](docs/CTF_FUNDAMENTALS.md)** | Panduan lengkap dari beginner hingga advanced |
+| 🚀 **[Quick Reference](docs/QUICK_REFERENCE.md)** | Cheatsheet perintah per kategori |
+| 🎯 **Interactive Learning** | Gunakan `raven --learn` untuk panduan interaktif |
+
+### Learning Path Overview
+
+**Phase 1** - Getting Started (7-9 weeks)
+- Linux & Command Line
+- Python Scripting
+- Number Systems & Encoding
+- Basic Networking
+- CTF Platforms & Format
+
+**Phase 2** - Web Exploitation (8-12 weeks)
+- SQL Injection, XSS, SSRF, Authentication Attacks
+
+**Phase 3** - Cryptography (10-16 weeks)
+- Classical Ciphers, Modern Crypto, RSA, Hashing
+
+**Phase 4** - Binary Exploitation (14-22 weeks)
+- Assembly, Buffer Overflow, ROP, Heap Exploitation
+
+**Phase 5** - Reverse Engineering (12-20 weeks)
+- Static/Dynamic Analysis, Anti-Reverse, Binary Formats
+
+**Phase 6** - Forensics & Misc (10-16 weeks)
+- File Analysis, Memory/Disk Forensics, Steganography, OSINT
+
+> 💡 **Tip:** Lihat [CTF_FUNDAMENTALS.md](docs/CTF_FUNDAMENTALS.md) untuk panduan detail dengan contoh perintah RAVEN!
+
+---
 
 ---
 
@@ -403,6 +470,9 @@ export RAVEN_WORDLIST="/path/to/list"  # Path wordlist kustom
 
 - ⚡ Gunakan `--quick` untuk analisis super cepat saat kompetisi berlangsung
 - 🎯 **Early exit** otomatis berhenti begitu flag ditemukan
+- 🎓 **Belajar CTF?** Gunakan `raven --learn` untuk panduan lengkap!
+- 📚 Lihat [docs/CTF_FUNDAMENTALS.md](docs/CTF_FUNDAMENTALS.md) untuk roadmap belajar
+- 🚀 Cek [docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md) untuk cheatsheet perintah
 - 🔢 File dengan hanya 0/1? Auto-detect binary digits + render gambar!
 - 📡 Morse code dalam file? `--morse` langsung decode dengan flag detection
 - 🔢 Angka decimal (70 76 65 71)? `--decimal` konversi ke ASCII otomatis
@@ -444,10 +514,12 @@ cd raven-ctf && chmod +x raven.sh
 raven challenge.png --auto    # Analyze your first challenge
 ```
 
-### Key Features (v5.2)
+### Key Features (v6.0)
 
 | Feature | Command | Description |
 |---------|---------|-------------|
+| 🎓 **CTF Learning Guide** | `--learn` | Complete roadmap from beginner to advanced |
+| 📚 **Quick Reference** | [docs/](docs/) | Per-category command cheatsheets |
 | 🔢 Binary Digits | `--binary` | Binary (0/1) to ASCII, image rendering, flag scan |
 | 📡 Morse Code | `--morse` | Full morse code decoder with flag detection |
 | 🔢 Decimal ASCII | `--decimal` | Decimal-encoded ASCII decoder |
